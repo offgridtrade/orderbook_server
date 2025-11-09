@@ -1,0 +1,19 @@
+[package]
+name = "orderbook_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+ctrlc = "3.4"
+zmq = "0.10"
+rust-rocksdb = "0.26"
+prost = "0.13"
+prost-types = "0.13"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3.12"
+
+[build-dependencies]
+prost-build = "0.13"
