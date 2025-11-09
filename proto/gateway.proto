@@ -24,4 +24,4 @@ message OrderMatch {
   uint64 amount = 5;
 }
 
-message 
+

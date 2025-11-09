@@ -3,17 +3,40 @@ use std::collections::BTreeMap;
 /// Represents an order stored in the order book.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Order {
-    pub owner: String,
-    pub price: u128,
-    pub deposit_amount: u128,
+    /// client order id
+    pub cid: Vec<u8>,
+    /// owner of the order
+    pub owner: Vec<u8>,
+    /// price of the order in 8 decimals
+    pub price: u64,
+    /// public liquidity for iceberg orders to protect position in 8 decimals
+    pub pq: u64,
+    /// initial liquidity of the order in 8 decimals
+    pub iq: u64,
+    /// current liqudity of the order in 8 decimals
+    pub cq: u64,
+    /// timestamp of the order in milliseconds
+    pub timestamp: i64,
 }
 
 impl Order {
-    pub fn new(owner: impl Into<String>, price: u128, deposit_amount: u128) -> Self {
+    pub fn new(
+        cid: Vec<u8>,
+        owner: Vec<u8>,
+        price: u64,
+        pq: u64,
+        iq: u64,
+        cq: u64,
+        timestamp: i64,
+    ) -> Self {
         Self {
-            owner: owner.into(),
+            cid,
+            owner,
             price,
-            deposit_amount,
+            pq,
+            iq,
+            cq,
+            timestamp,
         }
     }
 }
@@ -29,11 +52,13 @@ pub enum OrderbookError {
 #[derive(Debug, Default)]
 pub struct OrderStorage {
     /// Mapping price -> linked list stored as `current -> next`.
-    list: BTreeMap<u128, BTreeMap<u32, u32>>,
-    /// Order details keyed by id.
-    orders: BTreeMap<u32, Order>,
+    order_list: BTreeMap<u64, BTreeMap<u32, Option<u32>>>,
     /// Mapping price -> head of the linked list.
-    head: BTreeMap<u128, u32>,
+    order_head: BTreeMap<u64, Option<u32>>,
+    /// Mapping price -> last of the linked list.
+    order_last: BTreeMap<u64, Option<u32>>,
+    /// Order details keyed by id. Mapping order_id -> Order.
+    orders: BTreeMap<u32, Order>,
     /// Sequential counter for new order ids.
     count: u32,
     /// Last displaced order when IDs collide.
@@ -46,7 +71,7 @@ impl OrderStorage {
     }
 
     fn ensure_price(price: u128) -> Result<(), OrderbookError> {
-        if price == 0 {
+        if price == None {
             Err(OrderbookError::PriceIsZero)
         } else {
             Ok(())
@@ -54,93 +79,76 @@ impl OrderStorage {
     }
 
     /// Inserts an order id into the linked structure for a given price level,
-    /// keeping the list sorted by `deposit_amount` (descending).
-    pub fn insert_id(&mut self, price: u128, id: u32, amount: u128) -> Result<(), OrderbookError> {
+    /// keeping the timestamp of the order ascending.
+    /// basically you just add new order in the back of the linked list
+    pub fn insert_id(&mut self, price: u64, id: u32, amount: u128) -> Result<(), OrderbookError> {
         Self::ensure_price(price)?;
-
-        let head_entry = self.head.entry(price).or_insert(0);
-        let level_list = self.list.entry(price).or_default();
-
-        let head_id = *head_entry;
-        if head_id == 0
-            || amount
-                > self
-                    .orders
-                    .get(&head_id)
-                    .map(|o| o.deposit_amount)
-                    .unwrap_or(0)
-        {
-            level_list.insert(id, head_id);
-            *head_entry = id;
-            return Ok(());
+        // if the price is not in the list, insert it first
+        if !self.list.contains_key(&price) {
+            let new_list = BTreeMap::new();
+            new_list.insert(id, None);
+            self.order_list.insert(price, new_list);
+            // insert the id as head and last
+            self.order_head.insert(price, id);
+            self.order_last.insert(price, id);
+        } 
+        // if the price is in the list, get the last key and insert the id after it
+        else {
+            let last_order_id = self.last.get(&price);
+            // get the list of the price
+            let order_list = self.order_list.get_mut(&price).unwrap();
+            // insert the id after the last key
+            order_list.insert(last_order_id, id);
+            // update the list in the map
+            self.order_list.insert(price, order_list);
+            // update the last key
+            self.order_last.insert(price, id);
         }
-
-        let mut current = head_id;
-        while current != 0 {
-            let next = *level_list.get(&current).unwrap_or(&0);
-            let next_amount = self
-                .orders
-                .get(&next)
-                .map(|o| o.deposit_amount)
-                .unwrap_or(0);
-
-            if amount < next_amount {
-                current = next;
-                continue;
-            } else if amount > next_amount {
-                if next_amount == 0 {
-                    level_list.insert(current, id);
-                    level_list.insert(id, 0);
-                    return Ok(());
-                }
-
-                level_list.insert(current, id);
-                level_list.insert(id, next);
-                return Ok(());
-            } else {
-                let after_next = next;
-                let after_after = level_list.get(&after_next).copied().unwrap_or(0);
-                level_list.insert(id, after_after);
-                level_list.insert(after_next, id);
-                return Ok(());
-            }
-        }
-
         Ok(())
     }
 
     /// Removes and returns the first order id at the given price level.
-    pub fn pop_front(&mut self, price: u128) -> Option<u32> {
-        let head_id = self.head.get_mut(&price)?;
-        if *head_id == 0 {
-            return None;
+    pub fn pop_front(&mut self, price: u64) -> Option<u32, bool> {
+        let mut is_empty = false;
+        let head_order_id = self.order_head.get_mut(&price)?;
+        // if head_id is None, return None
+        if *head_order_id == None {
+            is_empty = true;
+            return (None, is_empty);
         }
-
-        let first = *head_id;
-        let next = self
-            .list
-            .get_mut(&price)
-            .and_then(|lvl| lvl.remove(&first))
-            .unwrap_or(0);
-
-        *head_id = next;
-        if next == 0 {
-            self.list.remove(&price);
-            self.head.remove(&price);
+        // if head_id is Some, unwrap it
+        let first = head_order_id.unwrap();
+        // get the order list from the price
+        let order_list = self.order_list.get_mut(&price).unwrap();
+        // get the next order id from the list to be the new head
+        let next_order_id = order_list.get(&first).unwrap();
+        // if next_order_id is None, remove list for the price and the head and last
+        if next_order_id == None {
+            self.order_list.remove(&price);
+            self.order_head.remove(&price);
+            self.order_last.remove(&price);
+            is_empty = true;
+            return (first, is_empty);
         }
-        Some(first)
+        // update the head and last
+        self.order_head.insert(price, next_order_id);
+        order_list.remove(&first);
+        self.order_list.insert(price, order_list);
+        Some((first, is_empty))
     }
 
     /// Creates a new order, assigning the next id. Returns `(id, found_dormant)`.
     pub fn create_order(
         &mut self,
-        owner: impl Into<String>,
-        price: u128,
-        deposit_amount: u128,
+        cid: Vec<u8>,
+        owner: Vec<u8>,
+        price: u64,
+        iq: u64,
+        pq: u64,
+        timestamp: i64,
     ) -> Result<(u32, bool), OrderbookError> {
         Self::ensure_price(price)?;
-
-        let order = Order::new(owner, price, deposit_amount);
+        let order = Order::new(cid, owner, price, pq, iq, iq, timestamp);
         self.count = if self.count == 0 || self.count == u32::MAX {
             1
         } else {
@@ -164,8 +172,8 @@ impl OrderStorage {
     pub fn decrease_order(
         &mut self,
         id: u32,
-        amount: u128,
-        dust: u128,
+        amount: u64,
+        dust: u64,
         clear: bool,
     ) -> Result<(u128, Option<u128>), OrderbookError> {
         if id == 0 {
