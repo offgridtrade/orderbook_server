@@ -175,7 +175,7 @@ impl OrderStorage {
         amount: u64,
         dust: u64,
         clear: bool,
-    ) -> Result<(u128, Option<u128>), OrderbookError> {
+    ) -> Result<(u64, Option<u64>), OrderbookError> {
         if id == 0 {
             return Err(OrderbookError::OrderIdIsZero(id));
         }
@@ -204,13 +204,13 @@ impl OrderStorage {
     }
 
     /// Deletes an order from the storage, returning the price level if it becomes empty.
-    pub fn delete_order(&mut self, id: u32) -> Option<u128> {
+    pub fn delete_order(&mut self, id: u32) -> Option<u64> {
         if id == 0 {
             return None;
         }
 
         let price = self.orders.get(&id)?.price;
-        let head_id = *self.head.get(&price).unwrap_or(&0);
+        let head_id = *self.order_head.get(&price).unwrap_or(&0);
 
         if head_id == id {
             let next = self
@@ -219,10 +219,10 @@ impl OrderStorage {
                 .and_then(|lvl| lvl.remove(&head_id))
                 .unwrap_or(0);
             if next == 0 {
-                self.head.remove(&price);
-                self.list.remove(&price);
+                self.order_head.remove(&price);
+                self.order_list.remove(&price);
             } else {
-                self.head.insert(price, next);
+                self.order_head.insert(price, next);
             }
         } else {
             if let Some(level) = self.list.get_mut(&price) {
@@ -241,8 +241,8 @@ impl OrderStorage {
         }
 
         self.orders.remove(&id);
-        if self.head.get(&price).copied().unwrap_or(0) == 0 {
-            self.head.remove(&price);
+        if self.order_head.get(&price).copied().unwrap_or(0) == 0 {
+            self.order_head.remove(&price);
             self.list.remove(&price);
             Some(price)
         } else {
@@ -262,7 +262,7 @@ impl OrderStorage {
     /// Collects up to `n` order ids from the front of the specified price level.
     pub fn get_order_ids(&self, price: u128, n: u32) -> Vec<u32> {
         let mut result = Vec::with_capacity(n as usize);
-        let mut current = *self.head.get(&price).unwrap_or(&0);
+        let mut current = *self.order_head.get(&price).unwrap_or(&0);
         let level = self.list.get(&price);
 
         while current != 0 && (result.len() as u32) < n {
@@ -291,7 +291,7 @@ impl OrderStorage {
         }
 
         let mut current_index = 0;
-        let mut current = *self.head.get(&price).unwrap_or(&0);
+        let mut current = *self.order_head.get(&price).unwrap_or(&0);
         let mut result = Vec::with_capacity((end - start) as usize);
         let level = self.list.get(&price);
 
@@ -317,16 +317,16 @@ impl OrderStorage {
         result
     }
 
-    pub fn head(&self, price: u128) -> Option<u32> {
-        let head = self.head.get(&price).copied().unwrap_or(0);
+    pub fn head(&self, price: u64) -> Option<u32> {
+        let head = self.order_head.get(&price).copied().unwrap_or(0);
         if head == 0 { None } else { Some(head) }
     }
 
-    pub fn is_empty(&self, price: u128) -> bool {
-        self.head.get(&price).copied().unwrap_or(0) == 0
+    pub fn is_empty(&self, price: u64) -> bool {
+        self.order_head.get(&price).copied().unwrap_or(0) == 0
     }
 
-    pub fn next(&self, price: u128, current: u32) -> Option<u32> {
+    pub fn next(&self, price: u64, current: u32) -> Option<u32> {
         self.list
             .get(&price)
             .and_then(|lvl| lvl.get(&current))
