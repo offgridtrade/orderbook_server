@@ -2,6 +2,9 @@ pub mod book;
 pub mod order_storage;
 pub mod price_linked_list;
 
+#[cfg(test)]
+mod order_storage_tests;
+
 pub const DENOM: u32 = 100_000_000;
 
 pub use book::{
