@@ -1,4 +1,4 @@
-use super::order_storage::OrderStorage;
+use super::{Order, OrderStorage};
 
 fn setup_orders() -> OrderStorage {
     let mut storage = OrderStorage::new();
@@ -57,4 +57,3 @@ fn decrease_order_removes_when_below_dust() {
     assert_eq!(deleted_price, Some(100));
     assert!(storage.is_empty(100));
 }
-

@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Represents an order stored in the order book.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Order {
     /// client order id
     pub cid: Vec<u8>,
@@ -49,7 +50,7 @@ pub enum OrderbookError {
     PriceIsZero,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct OrderStorage {
     /// Mapping price -> linked list stored as `current -> next`.
     order_list: BTreeMap<u64, BTreeMap<u32, u32>>,
@@ -80,30 +81,20 @@ impl OrderStorage {
 
     /// Inserts an order id into the linked structure for a given price level,
     /// keeping FIFO (append at tail).
-    pub fn insert_id(
-        &mut self,
-        price: u64,
-        id: u32,
-        _amount: u128,
-    ) -> Result<(), OrderbookError> {
+    pub fn insert_id(&mut self, price: u64, id: u32, _amount: u128) -> Result<(), OrderbookError> {
         Self::ensure_price(price)?;
 
-        let level = self
-            .order_list
-            .entry(price)
-            .or_insert_with(BTreeMap::new);
+        let level = self.order_list.entry(price).or_insert_with(BTreeMap::new);
+        let last_id = self.order_last.get(&price).copied().unwrap_or(0);
 
-        match self.order_last.get(&price).and_then(|opt| *opt) {
-            Some(last_id) => {
-                level.insert(last_id, Some(id));
-            }
-            None => {
-                self.order_head.insert(price, Some(id));
-            }
+        if last_id != 0 {
+            level.insert(last_id, id);
+        } else {
+            self.order_head.insert(price, id);
         }
 
-        level.insert(id, None);
-        self.order_last.insert(price, Some(id));
+        level.insert(id, 0);
+        self.order_last.insert(price, id);
 
         Ok(())
     }
@@ -111,22 +102,22 @@ impl OrderStorage {
     /// Removes and returns the first order id at the given price level.
     pub fn pop_front(&mut self, price: u64) -> Option<u32> {
         Self::ensure_price(price).ok()?;
-        let head_id = self.order_head.get(&price).and_then(|opt| *opt)?;
+        let head_id = self.order_head.get(&price).copied().unwrap_or(0);
+        if head_id == 0 {
+            return None;
+        }
         let next = self
             .order_list
             .get_mut(&price)
             .and_then(|level| level.remove(&head_id))
-            .flatten();
+            .unwrap_or(0);
 
-        match next {
-            Some(next_id) => {
-                self.order_head.insert(price, Some(next_id));
-            }
-            None => {
-                self.order_head.remove(&price);
-                self.order_last.remove(&price);
-                self.order_list.remove(&price);
-            }
+        if next != 0 {
+            self.order_head.insert(price, next);
+        } else {
+            self.order_head.remove(&price);
+            self.order_last.remove(&price);
+            self.order_list.remove(&price);
         }
 
         self.orders.remove(&head_id);
@@ -152,12 +143,11 @@ impl OrderStorage {
             self.count.saturating_add(1)
         };
 
-        if self.orders.contains_key(&self.count) {
-            self.dormant_order = self.orders.get(&self.count).cloned();
+        if let Some(existing) = self.orders.get(&self.count).cloned() {
+            self.dormant_order = Some(existing);
             self.delete_order(self.count);
-            let found = self.dormant_order.is_some();
             self.orders.insert(self.count, order);
-            return Ok((self.count, found));
+            return Ok((self.count, true));
         }
 
         self.orders.insert(self.count, order);
@@ -213,43 +203,40 @@ impl OrderStorage {
         }
 
         let price = self.orders.get(&id)?.price;
-        let head_id = self.order_head.get(&price).and_then(|opt| *opt);
+        let head_id = self.order_head.get(&price).copied().unwrap_or(0);
 
-        if head_id == Some(id) {
+        if head_id == id {
             let next = self
                 .order_list
                 .get_mut(&price)
                 .and_then(|lvl| lvl.remove(&id))
-                .flatten();
-            match next {
-                Some(next_id) => {
-                    self.order_head.insert(price, Some(next_id));
-                }
-                None => {
-                    self.order_head.remove(&price);
-                    self.order_last.remove(&price);
-                    self.order_list.remove(&price);
-                }
+                .unwrap_or(0);
+            if next != 0 {
+                self.order_head.insert(price, next);
+            } else {
+                self.order_head.remove(&price);
+                self.order_last.remove(&price);
+                self.order_list.remove(&price);
             }
         } else if let Some(level) = self.order_list.get_mut(&price) {
-            let mut current = head_id.flatten().unwrap_or(0);
+            let mut current = head_id;
             while current != 0 {
-                let next = level.get(&current).copied().flatten();
-                if next == Some(id) {
-                    let next_next = level.remove(&id).flatten();
+                let next = level.get(&current).copied().unwrap_or(0);
+                if next == id {
+                    let next_next = level.remove(&id).unwrap_or(0);
                     level.insert(current, next_next);
-                    if next_next.is_none() {
-                        self.order_last.insert(price, Some(current));
+                    if next_next == 0 {
+                        self.order_last.insert(price, current);
                     }
                     break;
                 }
-                current = next.unwrap_or(0);
+                current = next;
             }
         }
 
         self.orders.remove(&id);
 
-        if self.order_head.get(&price).and_then(|opt| *opt).is_none() {
+        if self.order_head.get(&price).copied().unwrap_or(0) == 0 {
             self.order_head.remove(&price);
             self.order_last.remove(&price);
             self.order_list.remove(&price);
@@ -271,10 +258,10 @@ impl OrderStorage {
     /// Collects up to `n` order ids from the front of the specified price level.
     pub fn get_order_ids(&self, price: u64, n: u32) -> Vec<u32> {
         let mut result = Vec::with_capacity(n as usize);
-        let mut current = self.order_head.get(&price).and_then(|opt| *opt);
+        let mut current = self.order_head.get(&price).copied().unwrap_or(0);
 
-        while let Some(current_id) = current {
-            result.push(current_id);
+        while current != 0 {
+            result.push(current);
             if result.len() as u32 >= n {
                 break;
             }
@@ -282,9 +269,9 @@ impl OrderStorage {
             current = self
                 .order_list
                 .get(&price)
-                .and_then(|level| level.get(&current_id))
+                .and_then(|level| level.get(&current))
                 .copied()
-                .flatten();
+                .unwrap_or(0);
         }
 
         result
@@ -305,12 +292,12 @@ impl OrderStorage {
         }
 
         let mut current_index = 0;
-        let mut current = self.order_head.get(&price).and_then(|opt| *opt);
+        let mut current = self.order_head.get(&price).copied().unwrap_or(0);
         let mut result = Vec::with_capacity((end - start) as usize);
 
-        while let Some(current_id) = current {
+        while current != 0 {
             if current_index >= start && current_index < end {
-                if let Some(order) = self.orders.get(&current_id) {
+                if let Some(order) = self.orders.get(&current) {
                     result.push(order.clone());
                 }
             }
@@ -322,9 +309,9 @@ impl OrderStorage {
             current = self
                 .order_list
                 .get(&price)
-                .and_then(|level| level.get(&current_id))
+                .and_then(|level| level.get(&current))
                 .copied()
-                .flatten();
+                .unwrap_or(0);
             current_index += 1;
         }
 
@@ -332,11 +319,14 @@ impl OrderStorage {
     }
 
     pub fn head(&self, price: u64) -> Option<u32> {
-        self.order_head.get(&price).and_then(|opt| *opt)
+        match self.order_head.get(&price).copied().unwrap_or(0) {
+            0 => None,
+            head => Some(head),
+        }
     }
 
     pub fn is_empty(&self, price: u64) -> bool {
-        self.head(price).is_none()
+        self.order_head.get(&price).copied().unwrap_or(0) == 0
     }
 
     pub fn next(&self, price: u64, current: u32) -> Option<u32> {
@@ -344,7 +334,7 @@ impl OrderStorage {
             .get(&price)
             .and_then(|lvl| lvl.get(&current))
             .copied()
-            .flatten()
+            .filter(|next| *next != 0)
     }
 
     pub fn get_order(&self, id: u32) -> Option<&Order> {

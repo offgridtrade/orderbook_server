@@ -2,10 +2,6 @@
 //!
 //! The actual code is produced by `prost-build` during compilation.
 
-pub mod orderbook {
-    include!(concat!(env!("OUT_DIR"), "/orderbook.rs"));
-}
-
 #[cfg(test)]
 mod tests {
     use prost::Message;
