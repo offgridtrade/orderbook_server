@@ -13,8 +13,9 @@ pub struct L2 {
     pub bid_price_lists: BTreeMap<u64, u64>,
     /// Mapping price -> head of the ask list
     pub ask_price_lists: BTreeMap<u64, u64>,
-    /// Bid levels sorted by price descending for snapshot display 
+    /// Bid levels sorted by price descending for snapshot display
     pub bids: Vec<Level>,
     /// Ask levels sorted by price ascending for snapshot display
     pub asks: Vec<Level>,
 }
+

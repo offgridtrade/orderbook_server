@@ -21,6 +21,7 @@ pub struct Order {
 }
 
 impl Order {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cid: Vec<u8>,
         owner: Vec<u8>,
@@ -43,49 +44,66 @@ impl Order {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum OrderbookError {
+pub enum L3Error {
     #[error("order id is zero: {0}")]
     OrderIdIsZero(u32),
     #[error("price is zero")]
     PriceIsZero,
+    #[error("order does not exist: {0}")]
+    OrderDoesNotExist(u32),
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct OrderStorage {
+pub struct L3 {
     /// Mapping price -> linked list stored as `current -> next`.
-    order_list: BTreeMap<u64, BTreeMap<u32, u32>>,
+    pub order_list: BTreeMap<u64, BTreeMap<u32, u32>>,
     /// Mapping price -> head of the linked list.
-    order_head: BTreeMap<u64, u32>,
+    pub order_head: BTreeMap<u64, u32>,
     /// Mapping price -> last of the linked list.
-    order_last: BTreeMap<u64, u32>,
+    pub order_tail: BTreeMap<u64, u32>,
     /// Order details keyed by id. Mapping order_id -> Order.
-    orders: BTreeMap<u32, Order>,
+    pub orders: BTreeMap<u32, Order>,
     /// Sequential counter for new order ids.
-    count: u32,
+    pub count: u32,
+    /// dust limit to determine if the order should be deleted
+    pub dust: u64,
     /// Last displaced order when IDs collide.
     pub dormant_order: Option<Order>,
 }
 
-impl OrderStorage {
+impl L3 {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            order_list: BTreeMap::new(),
+            order_head: BTreeMap::new(),
+            order_tail: BTreeMap::new(),
+            orders: BTreeMap::new(),
+            count: 0,
+            dust: 1,
+            dormant_order: None,
+        }
     }
 
-    fn ensure_price(price: u64) -> Result<(), OrderbookError> {
+    fn ensure_price(price: u64) -> Result<(), L3Error> {
         if price == 0 {
-            Err(OrderbookError::PriceIsZero)
+            Err(L3Error::PriceIsZero)
         } else {
             Ok(())
         }
     }
 
+    /// Sets the dust limit to determine if the order should be deleted
+    pub fn set_dust(&mut self, dust: u64) {
+        self.dust = dust;
+    }
+
     /// Inserts an order id into the linked structure for a given price level,
     /// keeping FIFO (append at tail).
-    pub fn insert_id(&mut self, price: u64, id: u32, _amount: u128) -> Result<(), OrderbookError> {
+    pub fn insert_id(&mut self, price: u64, id: u32, _amount: u128) -> Result<(), L3Error> {
         Self::ensure_price(price)?;
 
         let level = self.order_list.entry(price).or_insert_with(BTreeMap::new);
-        let last_id = self.order_last.get(&price).copied().unwrap_or(0);
+        let last_id = self.order_tail.get(&price).copied().unwrap_or(0);
 
         if last_id != 0 {
             level.insert(last_id, id);
@@ -94,17 +112,20 @@ impl OrderStorage {
         }
 
         level.insert(id, 0);
-        self.order_last.insert(price, id);
+        self.order_tail.insert(price, id);
 
         Ok(())
     }
 
     /// Removes and returns the first order id at the given price level.
-    pub fn pop_front(&mut self, price: u64) -> Option<u32> {
-        Self::ensure_price(price).ok()?;
+    /// returns (order_id, is_empty)
+    /// - `order_id` is the id of the first order in the price level.
+    /// - `is_empty` is true when the price level becomes empty.
+    pub fn pop_front(&mut self, price: u64) -> Result<(Option<u32>, bool), L3Error> {
+        Self::ensure_price(price)?;
         let head_id = self.order_head.get(&price).copied().unwrap_or(0);
         if head_id == 0 {
-            return None;
+            return Ok((None, true));
         }
         let next = self
             .order_list
@@ -114,27 +135,30 @@ impl OrderStorage {
 
         if next != 0 {
             self.order_head.insert(price, next);
+            Ok((Some(head_id), false))
         } else {
             self.order_head.remove(&price);
-            self.order_last.remove(&price);
+            self.order_tail.remove(&price);
             self.order_list.remove(&price);
+            return Ok((Some(head_id), true));
         }
-
-        self.orders.remove(&head_id);
-        Some(head_id)
     }
 
     /// Creates a new order, assigning the next id. Returns `(id, found_dormant)`.
+    /// - `id` is the id of the new order.
+    /// - `found_dormant` is true when a dormant order was found and stored in the `dormant_order` field.
     pub fn create_order(
         &mut self,
-        cid: Vec<u8>,
-        owner: Vec<u8>,
+        cid: impl Into<Vec<u8>>,
+        owner: impl Into<Vec<u8>>,
         price: u64,
         iq: u64,
         pq: u64,
         timestamp: i64,
-    ) -> Result<(u32, bool), OrderbookError> {
+    ) -> Result<(u32, bool), L3Error> {
         Self::ensure_price(price)?;
+        let cid = cid.into();
+        let owner = owner.into();
         let order = Order::new(cid, owner, price, pq, iq, iq, timestamp);
 
         self.count = if self.count == 0 || self.count == u32::MAX {
@@ -155,19 +179,22 @@ impl OrderStorage {
     }
 
     /// Decreases the deposit amount for a given order id.
-    /// Returns `(amount_to_send, deleted_price_if_level_empty)`.
+    ///
+    /// Returns `(amount_to_send, deleted_price_if_level_empty)` where:
+    /// - `amount_to_send` is the liquidity that should be returned to the caller. based on the dust limit and the clear flag.
+    /// - `deleted_price_if_level_empty` is `Some(price)` when the price level becomes empty.
     pub fn decrease_order(
         &mut self,
         id: u32,
         amount: u64,
         dust: u64,
         clear: bool,
-    ) -> Result<(u64, Option<u64>), OrderbookError> {
+    ) -> Result<(u64, Option<u64>), L3Error> {
         if id == 0 {
-            return Err(OrderbookError::OrderIdIsZero(id));
+            return Err(L3Error::OrderIdIsZero(id));
         }
 
-        let mut amount_to_send = 0;
+        let mut amount_to_send;
         let mut should_delete = false;
 
         {
@@ -189,7 +216,7 @@ impl OrderStorage {
         }
 
         if should_delete {
-            let delete_price = self.delete_order(id);
+            let delete_price = self.delete_order(id)?;
             Ok((amount_to_send, delete_price))
         } else {
             Ok((amount_to_send, None))
@@ -197,53 +224,66 @@ impl OrderStorage {
     }
 
     /// Deletes an order from the storage, returning the price level if it becomes empty.
-    pub fn delete_order(&mut self, id: u32) -> Option<u64> {
+    /// - returns the price level if it becomes empty.
+    pub fn delete_order(&mut self, id: u32) -> Result<Option<u64>, L3Error> {
         if id == 0 {
-            return None;
+            return Err(L3Error::OrderIdIsZero(id));
         }
 
-        let price = self.orders.get(&id)?.price;
-        let head_id = self.order_head.get(&price).copied().unwrap_or(0);
+        
 
-        if head_id == id {
+        // remove order id from the list of orders
+        let price = self
+            .orders
+            .get(&id)
+            .ok_or(L3Error::OrderDoesNotExist(id))?
+            .price;
+        let head_id = self.order_head.get(&price).copied();
+        // if the id to delete is at the head of the price level order list
+        if head_id == Some(id) {
+            // remove the id from the price level order list
             let next = self
                 .order_list
                 .get_mut(&price)
                 .and_then(|lvl| lvl.remove(&id))
                 .unwrap_or(0);
+            // if the next is not 0, the next is the new head
             if next != 0 {
+                // insert the next in the head position
                 self.order_head.insert(price, next);
-            } else {
+            } 
+            // if the next is 0, the price level becomes empty
+            else {
                 self.order_head.remove(&price);
-                self.order_last.remove(&price);
+                self.order_tail.remove(&price);
                 self.order_list.remove(&price);
             }
-        } else if let Some(level) = self.order_list.get_mut(&price) {
+        } 
+        // if the id to delete is not at the head of the price level order list
+        else if let Some(level) = self.order_list.get_mut(&price) {
             let mut current = head_id;
-            while current != 0 {
-                let next = level.get(&current).copied().unwrap_or(0);
-                if next == id {
-                    let next_next = level.remove(&id).unwrap_or(0);
-                    level.insert(current, next_next);
-                    if next_next == 0 {
-                        self.order_last.insert(price, current);
+            while current.is_some() {
+                let next = level.get(&current.unwrap());
+                if let Some(&next_id) = next {
+                    // if the next is the id to delete, remove the id from the price level order list
+                    if next_id == id {
+                        let next_next = level.get(&next_id).copied().unwrap_or(0);
+                        // if the next next is 0, the next is the new tail
+                        if next_next == 0 {
+                            self.order_tail.insert(price, next_id);
+                        }
+                        // insert the next next in the current position
+                        level.insert(current.unwrap(), next_next);
+                        break;
                     }
-                    break;
                 }
-                current = next;
+                // if the next is not the id to delete, move to the next
+                current = next.copied();
             }
         }
-
+        // remove order from the orders map
         self.orders.remove(&id);
-
-        if self.order_head.get(&price).copied().unwrap_or(0) == 0 {
-            self.order_head.remove(&price);
-            self.order_last.remove(&price);
-            self.order_list.remove(&price);
-            Some(price)
-        } else {
-            None
-        }
+        Ok(None)
     }
 
     /// Returns the next id that would be assigned on order creation.
@@ -286,7 +326,7 @@ impl OrderStorage {
     }
 
     /// Collects orders within the `[start, end)` window from the specified price level.
-    pub fn get_orders_paginated(&self, price: u64, start: u32, end: u32) -> Vec<Order> {
+    pub fn get_orders_in_range(&self, price: u64, start: u32, end: u32) -> Vec<Order> {
         if start >= end {
             return Vec::new();
         }
@@ -322,6 +362,13 @@ impl OrderStorage {
         match self.order_head.get(&price).copied().unwrap_or(0) {
             0 => None,
             head => Some(head),
+        }
+    }
+
+    pub fn tail(&self, price: u64) -> Option<u32> {
+        match self.order_tail.get(&price).copied().unwrap_or(0) {
+            0 => None,
+            tail => Some(tail),
         }
     }
 

@@ -19,6 +19,7 @@ pub struct L1 {
 }
 
 impl L1 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         lmp: u64,
         bid_head: u64,
@@ -39,3 +40,4 @@ impl L1 {
         }
     }
 }
+
