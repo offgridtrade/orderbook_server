@@ -230,8 +230,6 @@ impl L3 {
             return Err(L3Error::OrderIdIsZero(id));
         }
 
-        
-
         // remove order id from the list of orders
         let price = self
             .orders
@@ -251,14 +249,17 @@ impl L3 {
             if next != 0 {
                 // insert the next in the head position
                 self.order_head.insert(price, next);
-            } 
+            }
             // if the next is 0, the price level becomes empty
             else {
                 self.order_head.remove(&price);
                 self.order_tail.remove(&price);
                 self.order_list.remove(&price);
+                // remove order from the orders map
+                self.orders.remove(&id);
+                return Ok(Some(price));
             }
-        } 
+        }
         // if the id to delete is not at the head of the price level order list
         else if let Some(level) = self.order_list.get_mut(&price) {
             let mut current = head_id;
@@ -270,7 +271,8 @@ impl L3 {
                         let next_next = level.get(&next_id).copied().unwrap_or(0);
                         // if the next next is 0, the next is the new tail
                         if next_next == 0 {
-                            self.order_tail.insert(price, next_id);
+                            // if the next next is 0, the current is the new tail
+                            self.order_tail.insert(price, current.unwrap());
                         }
                         // insert the next next in the current position
                         level.insert(current.unwrap(), next_next);

@@ -77,7 +77,15 @@ fn pop_front_removes_head() {
 }
 
 #[test]
-fn delete_order_removes_order_from_storage() {
+fn delete_order_removes_order_from_storage_and_returns_none_if_order_does_not_exist() {
+    let mut storage = setup_orders_with_price_level_shift_scenario();
+    let result = storage.delete_order(10);
+    assert!(result.is_err());
+    assert!(matches!(result, Err(L3Error::OrderDoesNotExist(10))));
+}
+
+#[test]
+fn delete_order_removes_order_from_storage_and_return_emptied_price_level() {
     let mut storage = setup_orders_with_price_level_shift_scenario();
     let result = storage.delete_order(1);
     assert!(result.is_ok());
@@ -89,6 +97,45 @@ fn delete_order_removes_order_from_storage() {
     let ids = storage.get_order_ids(100, 3);
     assert_eq!(ids.len(), 0);
 }
+
+#[test]
+fn delete_order_removes_order_from_storage_in_the_middle_of_the_price_level() {
+    let mut storage = setup_orders();
+    let result = storage.delete_order(2);
+    assert!(result.is_ok());
+    // should return none as the price level is not empty
+    assert_eq!(result.unwrap(), None);
+    assert!(!storage.is_empty(100));
+    // head and tail should be same from before and after the deletion
+    assert_eq!(storage.head(100), Some(1));
+    assert_eq!(storage.tail(100), Some(3));
+    let ids = storage.get_order_ids(100, 3);
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids, vec![1, 3]);
+    // check if the orders are in the correct order for FIFO, [1, 3]
+    let first_order = storage.get_order(1).unwrap();
+    assert_eq!(first_order.owner, "alice".as_bytes());
+    let second_order = storage.get_order(3).unwrap();
+    assert_eq!(second_order.owner, "carol".as_bytes());
+}
+
+#[test]
+fn delete_order_removes_order_from_storage_end() {
+    let mut storage = setup_orders();
+    let result = storage.delete_order(3);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+    assert!(!storage.is_empty(100));
+    // check ids
+    let ids = storage.get_order_ids(100, 3);
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids, vec![1, 2]);
+    // head should be 1
+    assert_eq!(storage.head(100), Some(1));
+    // tail should be 2
+    assert_eq!(storage.tail(100), Some(2));
+}
+
 
 #[test]
 fn decrease_order_removes_when_below_dust() {
