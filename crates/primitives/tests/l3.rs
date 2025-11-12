@@ -77,13 +77,17 @@ fn pop_front_removes_head() {
 }
 
 #[test]
-fn pop_front_removes_head_and_tail_when_only_one_order_left() {
+fn delete_order_removes_order_from_storage() {
     let mut storage = setup_orders_with_price_level_shift_scenario();
-    let front = storage.pop_front(100);
-    assert!(front.is_ok());
-    assert_eq!(front.unwrap(), (Some(1), true));
+    let result = storage.delete_order(1);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(100));
+    assert!(storage.is_empty(100));
+
     assert!(storage.head(100).is_none());
     assert!(storage.tail(100).is_none());
+    let ids = storage.get_order_ids(100, 3);
+    assert_eq!(ids.len(), 0);
 }
 
 #[test]

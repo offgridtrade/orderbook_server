@@ -9,7 +9,18 @@ run_unless_dry_run() {
     fi
 }
 
-root=$WORKSPACE_ROOT
+# Set root to WORKSPACE_ROOT if provided, otherwise use git root
+if [ -n "$WORKSPACE_ROOT" ]; then
+    root=$WORKSPACE_ROOT
+else
+    # Find git repository root
+    root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [ -z "$root" ]; then
+        echo "Error: Not in a git repository and WORKSPACE_ROOT not set" >&2
+        exit 1
+    fi
+fi
+
 crate=$CRATE_ROOT
 crate_glob="${crate#"$root/"}/**"
 
