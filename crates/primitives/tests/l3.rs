@@ -77,6 +77,16 @@ fn pop_front_removes_head() {
 }
 
 #[test]
+fn pop_front_removes_head_and_tail_when_only_one_order_left() {
+    let mut storage = setup_orders_with_price_level_shift_scenario();
+    let front = storage.pop_front(100);
+    assert!(front.is_ok());
+    assert_eq!(front.unwrap(), (Some(1), true));
+    assert!(storage.head(100).is_none());
+    assert!(storage.tail(100).is_none());
+}
+
+#[test]
 fn decrease_order_removes_when_below_dust() {
     let mut storage = L3::new();
     let (id, _) = storage
