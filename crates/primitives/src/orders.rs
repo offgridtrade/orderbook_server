@@ -169,7 +169,7 @@ impl L3 {
 
         if let Some(existing) = self.orders.get(&self.count).cloned() {
             self.dormant_order = Some(existing);
-            self.delete_order(self.count);
+            self.delete_order(self.count)?;
             self.orders.insert(self.count, order);
             return Ok((self.count, true));
         }

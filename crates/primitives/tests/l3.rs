@@ -43,11 +43,11 @@ fn inserts_orders_fifo() {
     // check if the order ids are in the correct order for FIFO, [1, 2, 3]
     assert_eq!(ids, vec![1, 2, 3]);
     let first_order = storage.get_order(ids[0]).unwrap();
-    assert_eq!(first_order.owner, vec![65, 108, 105, 99, 101]);
+    assert_eq!(first_order.owner, "alice".as_bytes());
     let second_order = storage.get_order(ids[1]).unwrap();
-    assert_eq!(second_order.owner, vec![66, 111, 98]);
+    assert_eq!(second_order.owner, "bob".as_bytes());
     let third_order = storage.get_order(ids[2]).unwrap();
-    assert_eq!(third_order.owner, vec![67, 97, 114, 111, 108]);
+    assert_eq!(third_order.owner, "carol".as_bytes());
 }
 
 #[test]
