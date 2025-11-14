@@ -8,15 +8,25 @@ pub struct Level {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PriceNode {
+    pub prev: Option<u64>,
+    pub next: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct L2 {
     /// Head of the bid price linked list
     pub bid_price_head: Option<u64>,
     /// Head of the ask price linked list
     pub ask_price_head: Option<u64>,
-    /// Mapping price -> head of the bid price linked list
-    pub bid_price_lists: BTreeMap<u64, u64>,
-    /// Mapping price -> head of the ask price linked list
-    pub ask_price_lists: BTreeMap<u64, u64>,
+    /// Tail of the bid price linked list
+    pub bid_price_tail: Option<u64>,
+    /// Tail of the ask price linked list
+    pub ask_price_tail: Option<u64>,
+    /// Mapping price -> node of the bid price linked list
+    pub bid_price_nodes: BTreeMap<u64, PriceNode>,
+    /// Mapping price -> node of the ask price linked list
+    pub ask_price_nodes: BTreeMap<u64, PriceNode>,
     /// Bid levels sorted by price descending
     pub bid_level: BTreeMap<u64, u64>,
     /// Ask levels sorted by price ascending
@@ -41,9 +51,11 @@ impl L2 {
     pub fn new() -> Self {
         Self {
             bid_price_head: None,
+            bid_price_tail: None,
             ask_price_head: None,
-            bid_price_lists: BTreeMap::new(),
-            ask_price_lists: BTreeMap::new(),
+            ask_price_tail: None,
+            bid_price_nodes: BTreeMap::new(),
+            ask_price_nodes: BTreeMap::new(),
             bid_level: BTreeMap::new(),
             ask_level: BTreeMap::new(),
             bid_levels: BTreeMap::new(),
@@ -125,12 +137,25 @@ impl L2 {
         // compare head of the bid price head
         if self.bid_price_head == None {
             self.bid_price_head = Some(price);
+            // set the tail of the bid price linked list
+            self.bid_price_tail = Some(price);
+            // create a node for the first price
+            self.bid_price_nodes.insert(price, PriceNode {
+                prev: None,
+                next: None,
+            });
             return Ok(());
         }
         else if price > self.bid_price_head.unwrap() {
             let old_head = self.bid_price_head.unwrap();
             self.bid_price_head = Some(price);
-            self.bid_price_lists.insert(price, old_head);
+            // update old head's node to point back to new head
+            self.bid_price_nodes.get_mut(&old_head).map(|node| node.prev = Some(price));
+            // create node for new head
+            self.bid_price_nodes.insert(price, PriceNode {
+                prev: None,
+                next: Some(old_head),
+            });
             return Ok(());
         } 
         else if price == self.bid_price_head.unwrap() {
@@ -140,29 +165,40 @@ impl L2 {
             // traverse through the bid price linked list and insert the price at the correct position so that the list is sorted in descending order
             let mut current = self.bid_price_head;
             while current.is_some() {
-                let next = self.bid_price_lists.get(&current.unwrap());
+                let next = self.bid_price_nodes.get(&current.unwrap()).and_then(|node| node.next);
                 // next does not exist
                 if next.is_none() {
                     // insert the price at the current position
-                    self.bid_price_lists.insert(current.unwrap(), price);
+                    let curr = current.unwrap();
+                    self.bid_price_nodes.get_mut(&curr).map(|node| node.next = Some(price));
+                    // create a node for the new price
+                    self.bid_price_nodes.insert(price, PriceNode {
+                        prev: Some(curr),
+                        next: None,
+                    });
+                    // set the tail of the bid price linked list
+                    self.bid_price_tail = Some(price);
                     return Ok(());
                 }
                 else {
                     // next exists
-                    if *next.unwrap() > price {
+                    let next_val = next.unwrap();
+                    if next_val > price {
                         // traverse until the price is bigger than the current price
-                        current = Some(*next.unwrap());
+                        current = Some(next_val);
                     }
-                    else if *next.unwrap() < price {
+                    else if next_val < price {
                         // To avoid mutable and immutable borrow at the same time, collect value first
                         let curr = current.unwrap();
-                        let next_val = *next.unwrap();
-                        // remove the link between the current price and the next price
-                        self.bid_price_lists.remove(&curr);
-                        // insert the link between the current price and the new price
-                        self.bid_price_lists.insert(curr, price);
-                        // insert the link between the current price and the next price
-                        self.bid_price_lists.insert(price, next_val);
+                        // Update current's next to point to new price
+                        self.bid_price_nodes.get_mut(&curr).map(|node| node.next = Some(price));
+                        // Update next_val's prev to point to new price
+                        self.bid_price_nodes.get_mut(&next_val).map(|node| node.prev = Some(price));
+                        // Create node for new price
+                        self.bid_price_nodes.insert(price, PriceNode {
+                            prev: Some(curr),
+                            next: Some(next_val),
+                        });
                         return Ok(());
                     }
                 }
@@ -178,12 +214,17 @@ impl L2 {
         // compare head of the ask price head
         if self.ask_price_head == None {
             self.ask_price_head = Some(price);
+            // set the tail of the ask price linked list
+            self.ask_price_tail = Some(price);
             return Ok(());
         }
         else if price < self.ask_price_head.unwrap() {
             let old_head = self.ask_price_head.unwrap();
             self.ask_price_head = Some(price);
-            self.ask_price_lists.insert(price, old_head);
+            self.ask_price_nodes.insert(price, PriceNode {
+                prev: None,
+                next: Some(old_head),
+            });
             return Ok(());
         }
         else if price == self.ask_price_head.unwrap() {
@@ -193,29 +234,35 @@ impl L2 {
             // traverse through the ask price linked list and insert the price at the correct position so that the list is sorted in ascending order
             let mut current = self.ask_price_head;
             while current.is_some() {
-                let next = self.ask_price_lists.get(&current.unwrap());
+                let next = self.ask_price_nodes.get(&current.unwrap()).and_then(|node| node.next);
                 // next does not exist
                 if next.is_none() {
                     // insert the price at the current position
-                    self.ask_price_lists.insert(current.unwrap(), price);
+                    self.ask_price_nodes.insert(current.unwrap(), PriceNode {
+                        prev: None,
+                        next: Some(price),
+                    });
+                    // set the tail of the ask price linked list
+                    self.ask_price_tail = Some(price);
                     return Ok(());
                 }
                 else {
                     // next exists
-                    if *next.unwrap() < price {
+                    let next_val = next.unwrap();
+                    if next_val < price {
                         // traverse until the price is smaller than the current price
-                        current = Some(*next.unwrap());
+                        current = Some(next_val);
                     }
-                    else if *next.unwrap() > price {
+                    else if next_val > price {
                         // To avoid mutable and immutable borrow at the same time, collect value first
                         let curr = current.unwrap();
-                        let next_val = *next.unwrap();
-                        // remove the link between the current price and the next price
-                        self.ask_price_lists.remove(&curr);
+                        // Remove the link between the current price and the next price
+                        self.ask_price_nodes.get_mut(&curr).map(|node| node.next = Some(price));
                         // insert the link between the current price and the new price
-                        self.ask_price_lists.insert(curr, price);
-                        // insert the link between the current price and the next price
-                        self.ask_price_lists.insert(price, next_val);
+                        self.ask_price_nodes.insert(price, PriceNode {
+                            prev: Some(curr),
+                            next: Some(next_val),
+                        });
                         return Ok(());
                     }
                     else {

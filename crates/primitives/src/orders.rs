@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Represents an order stored in the order book.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -43,6 +43,12 @@ impl Order {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Node {
+    pub prev: Option<u32>,
+    pub next: Option<u32>,
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum L3Error {
     #[error("order id is zero: {0}")]
@@ -55,29 +61,29 @@ pub enum L3Error {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct L3 {
-    /// Mapping price -> linked list stored as `current -> next`.
-    pub order_list: BTreeMap<u64, BTreeMap<u32, u32>>,
-    /// Mapping price -> head of the linked list.
-    pub order_head: BTreeMap<u64, u32>,
-    /// Mapping price -> last of the linked list.
-    pub order_tail: BTreeMap<u64, u32>,
+    /// Mapping price -> head of the linked list in a price level.
+    pub price_head: BTreeMap<u64, u32>,
+    /// Mapping price -> last of the linked list in a price level.
+    pub price_tail: BTreeMap<u64, u32>,
     /// Order details keyed by id. Mapping order_id -> Order.
-    pub orders: BTreeMap<u32, Order>,
+    pub order_nodes: HashMap<u32, Node>,
+    /// Mapping order_id -> Order.
+    pub orders: HashMap<u32, Order>,
     /// Sequential counter for new order ids.
     pub count: u32,
     /// dust limit to determine if the order should be deleted
     pub dust: u64,
     /// Last displaced order when IDs collide.
-    pub dormant_order: Option<Order>,
+    pub dormant_order: Option<Node>,
 }
 
 impl L3 {
     pub fn new() -> Self {
         Self {
-            order_list: BTreeMap::new(),
-            order_head: BTreeMap::new(),
-            order_tail: BTreeMap::new(),
-            orders: BTreeMap::new(),
+            price_head: BTreeMap::new(),
+            price_tail: BTreeMap::new(),
+            order_nodes: HashMap::new(),
+            orders: HashMap::new(),
             count: 0,
             dust: 1,
             dormant_order: None,
@@ -101,18 +107,31 @@ impl L3 {
     /// keeping FIFO (append at tail).
     pub fn insert_id(&mut self, price: u64, id: u32, _amount: u128) -> Result<(), L3Error> {
         Self::ensure_price(price)?;
+        // ensure the order exists from the orders map
+        let order_node = self.order_nodes.get_mut(&id).ok_or(L3Error::OrderDoesNotExist(id))?;
 
-        let level = self.order_list.entry(price).or_insert_with(BTreeMap::new);
-        let last_id = self.order_tail.get(&price).copied().unwrap_or(0);
+        let price_tail = self.price_tail.get(&price).copied().unwrap_or(0);
 
-        if last_id != 0 {
-            level.insert(last_id, id);
-        } else {
-            self.order_head.insert(price, id);
+        // if the price level is not empty
+        if price_tail != 0 {
+            // insert the order node at the tail of the price level
+            // First, update the prev of the new order node to point to old tail
+            order_node.prev = Some(price_tail);
+            order_node.next = None;
+            // To avoid double mutable borrow of self.order_nodes, we do this after:
+            let price_tail_node_ptr = self.order_nodes.get_mut(&price_tail).ok_or(L3Error::OrderDoesNotExist(price_tail))?;
+            price_tail_node_ptr.next = Some(id);
+            // Update the tail pointer to the new node
+            self.price_tail.insert(price, id);
+        } 
+        // if the price level is empty
+        else {
+            // insert the order node at the head of the price level
+            order_node.prev = None;
+            order_node.next = None;
+            self.price_head.insert(price, id);
+            self.price_tail.insert(price, id);
         }
-
-        level.insert(id, 0);
-        self.order_tail.insert(price, id);
 
         Ok(())
     }
@@ -123,23 +142,22 @@ impl L3 {
     /// - `is_empty` is true when the price level becomes empty.
     pub fn pop_front(&mut self, price: u64) -> Result<(Option<u32>, bool), L3Error> {
         Self::ensure_price(price)?;
-        let head_id = self.order_head.get(&price).copied().unwrap_or(0);
+        let head_id = self.price_head.get(&price).copied().unwrap_or(0);
         if head_id == 0 {
             return Ok((None, true));
         }
-        let next = self
-            .order_list
-            .get_mut(&price)
-            .and_then(|level| level.remove(&head_id))
-            .unwrap_or(0);
-
-        if next != 0 {
-            self.order_head.insert(price, next);
+        let order_node = self.order_nodes.get_mut(&head_id).ok_or(L3Error::OrderDoesNotExist(head_id))?;
+        let next = order_node.next;
+        if next.is_some() {
+            order_node.next = None;
+            let next_node = self.order_nodes.get_mut(&next.unwrap()).ok_or(L3Error::OrderDoesNotExist(next.unwrap()))?;
+            next_node.prev = None;
+            // set next node as the new head of the price level
+            self.price_head.insert(price, next.unwrap());
             Ok((Some(head_id), false))
         } else {
-            self.order_head.remove(&price);
-            self.order_tail.remove(&price);
-            self.order_list.remove(&price);
+            self.price_head.remove(&price);
+            self.price_tail.remove(&price);
             return Ok((Some(head_id), true));
         }
     }
@@ -167,13 +185,22 @@ impl L3 {
             self.count.saturating_add(1)
         };
 
-        if let Some(existing) = self.orders.get(&self.count).cloned() {
+        if let Some(existing) = self.order_nodes.get(&self.count).cloned() {
             self.dormant_order = Some(existing);
             self.delete_order(self.count)?;
+            // update the prev and next of the existing node to None
+            let existing_node = self.order_nodes.get_mut(&self.count).ok_or(L3Error::OrderDoesNotExist(self.count))?;
+            existing_node.prev = None;
+            existing_node.next = None;
             self.orders.insert(self.count, order);
             return Ok((self.count, true));
         }
 
+        // Create a new node for the order
+        self.order_nodes.insert(self.count, Node {
+            prev: None,
+            next: None,
+        });
         self.orders.insert(self.count, order);
         Ok((self.count, false))
     }
@@ -236,53 +263,39 @@ impl L3 {
             .get(&id)
             .ok_or(L3Error::OrderDoesNotExist(id))?
             .price;
-        let head_id = self.order_head.get(&price).copied();
-        // if the id to delete is at the head of the price level order list
-        if head_id == Some(id) {
-            // remove the id from the price level order list
-            let next = self
-                .order_list
-                .get_mut(&price)
-                .and_then(|lvl| lvl.remove(&id))
-                .unwrap_or(0);
-            // if the next is not 0, the next is the new head
-            if next != 0 {
-                // insert the next in the head position
-                self.order_head.insert(price, next);
-            }
-            // if the next is 0, the price level becomes empty
-            else {
-                self.order_head.remove(&price);
-                self.order_tail.remove(&price);
-                self.order_list.remove(&price);
-                // remove order from the orders map
-                self.orders.remove(&id);
-                return Ok(Some(price));
-            }
+
+        // remove order node from the order nodes map
+        let order_node = self.order_nodes.get_mut(&id).ok_or(L3Error::OrderDoesNotExist(id))?;
+        let prev = order_node.prev;
+        let next = order_node.next;
+        
+        // connect prev and next nodes
+        // if both prev and next are some, connect prev to next
+        if prev.is_some() && next.is_some() {
+            let prev_node = self.order_nodes.get_mut(&prev.unwrap()).ok_or(L3Error::OrderDoesNotExist(prev.unwrap()))?;
+            prev_node.next = next;
         }
-        // if the id to delete is not at the head of the price level order list
-        else if let Some(level) = self.order_list.get_mut(&price) {
-            let mut current = head_id;
-            while current.is_some() {
-                let next = level.get(&current.unwrap());
-                if let Some(&next_id) = next {
-                    // if the next is the id to delete, remove the id from the price level order list
-                    if next_id == id {
-                        let next_next = level.get(&next_id).copied().unwrap_or(0);
-                        // if the next next is 0, the next is the new tail
-                        if next_next == 0 {
-                            // if the next next is 0, the current is the new tail
-                            self.order_tail.insert(price, current.unwrap());
-                        }
-                        // insert the next next in the current position
-                        level.insert(current.unwrap(), next_next);
-                        break;
-                    }
-                }
-                // if the next is not the id to delete, move to the next
-                current = next.copied();
-            }
+        // if prev is some and next is none, make prev the tail of the price level
+        else if prev.is_some()  && next.is_none(){
+            let prev_node = self.order_nodes.get_mut(&prev.unwrap()).ok_or(L3Error::OrderDoesNotExist(prev.unwrap()))?;
+            prev_node.next = None;
+            self.price_tail.insert(price, prev.unwrap());
+           
         }
+        // if prev is none and next is some, make next the head of the price level
+        else if prev.is_none() && next.is_some() {
+            let next_node = self.order_nodes.get_mut(&next.unwrap()).ok_or(L3Error::OrderDoesNotExist(next.unwrap()))?;
+            next_node.prev = None;
+            self.price_head.insert(price, next.unwrap());
+        }
+        // if both prev and next are none, the price level is empty, and return the price level
+        else {
+            self.price_head.remove(&price);
+            self.price_tail.remove(&price);
+            self.order_nodes.remove(&id);
+            return Ok(Some(price));
+        }
+        
         // remove order from the orders map
         self.orders.remove(&id);
         Ok(None)
@@ -300,7 +313,7 @@ impl L3 {
     /// Collects up to `n` order ids from the front of the specified price level.
     pub fn get_order_ids(&self, price: u64, n: u32) -> Vec<u32> {
         let mut result = Vec::with_capacity(n as usize);
-        let mut current = self.order_head.get(&price).copied().unwrap_or(0);
+        let mut current = self.price_head.get(&price).copied().unwrap_or(0);
 
         while current != 0 {
             result.push(current);
@@ -309,10 +322,9 @@ impl L3 {
             }
 
             current = self
-                .order_list
-                .get(&price)
-                .and_then(|level| level.get(&current))
-                .copied()
+                .order_nodes
+                .get(&current)
+                .and_then(|node| node.next)
                 .unwrap_or(0);
         }
 
@@ -334,7 +346,7 @@ impl L3 {
         }
 
         let mut current_index = 0;
-        let mut current = self.order_head.get(&price).copied().unwrap_or(0);
+        let mut current = self.price_head.get(&price).copied().unwrap_or(0);
         let mut result = Vec::with_capacity((end - start) as usize);
 
         while current != 0 {
@@ -349,10 +361,9 @@ impl L3 {
             }
 
             current = self
-                .order_list
-                .get(&price)
-                .and_then(|level| level.get(&current))
-                .copied()
+                .order_nodes
+                .get(&current)
+                .and_then(|node| node.next)
                 .unwrap_or(0);
             current_index += 1;
         }
@@ -361,32 +372,33 @@ impl L3 {
     }
 
     pub fn head(&self, price: u64) -> Option<u32> {
-        match self.order_head.get(&price).copied().unwrap_or(0) {
+        match self.price_head.get(&price).copied().unwrap_or(0) {
             0 => None,
             head => Some(head),
         }
     }
 
     pub fn tail(&self, price: u64) -> Option<u32> {
-        match self.order_tail.get(&price).copied().unwrap_or(0) {
+        match self.price_tail.get(&price).copied().unwrap_or(0) {
             0 => None,
             tail => Some(tail),
         }
     }
 
     pub fn is_empty(&self, price: u64) -> bool {
-        self.order_head.get(&price).copied().unwrap_or(0) == 0
+        self.price_head.get(&price).copied().unwrap_or(0) == 0
     }
 
-    pub fn next(&self, price: u64, current: u32) -> Option<u32> {
-        self.order_list
-            .get(&price)
-            .and_then(|lvl| lvl.get(&current))
-            .copied()
-            .filter(|next| *next != 0)
+    pub fn next(&self, _price: u64, current: u32) -> Option<u32> {
+        // get the next node in the price level from the current node
+        let next_node = self.order_nodes.get(&current).and_then(|node| node.next);
+        match next_node {
+            Some(next) => Some(next),
+            None => None,   
+        }
     }
 
-    pub fn get_order(&self, id: u32) -> Option<&Order> {
-        self.orders.get(&id)
+    pub fn get_order(&self, id: u32) -> Result<&Order, L3Error> {
+        self.orders.get(&id).ok_or(L3Error::OrderDoesNotExist(id))
     }
 }

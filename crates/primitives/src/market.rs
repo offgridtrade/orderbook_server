@@ -18,6 +18,12 @@ pub struct L1 {
     pub market_sell_slippage_limit: Option<u64>,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum L1Error {
+    #[error("price is zero")]
+    PriceIsZero,
+}
+
 impl Default for L1 {
     fn default() -> Self {
         Self {
