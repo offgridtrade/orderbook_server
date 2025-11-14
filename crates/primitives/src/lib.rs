@@ -1,6 +1,7 @@
 pub mod market;
 pub mod prices;
 pub mod orders;
+pub mod orderbook;
 
 pub use market::L1;
 pub use prices::{L2, Level};

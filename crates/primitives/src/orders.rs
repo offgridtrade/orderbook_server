@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Represents an order stored in the order book.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Order {
     /// client order id
     pub cid: Vec<u8>,
@@ -53,7 +53,7 @@ pub enum L3Error {
     OrderDoesNotExist(u32),
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct L3 {
     /// Mapping price -> linked list stored as `current -> next`.
     pub order_list: BTreeMap<u64, BTreeMap<u32, u32>>,
