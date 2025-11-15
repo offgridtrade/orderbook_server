@@ -59,6 +59,17 @@ impl OrderBook {
         
     }
 
+    pub fn clear_empty_head(&mut self, is_bid: bool) -> Result<u64, OrderBookError> {
+        let head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
+        let order_id = if is_bid { self.l3.head(head.unwrap()) } else { self.l3.head(head.unwrap()) };
+        while order_id.is_some() && head.is_some() {
+            let head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
+            let order_id = if is_bid { self.l3.head(head.unwrap()) } else { self.l3.head(head.unwrap()) };
+        }
+        let delete_price = self.l2.clear_head(is_bid)?;
+        Ok(delete_price.unwrap())
+    }
+
     pub fn fpop() {
 
     }

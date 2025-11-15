@@ -238,7 +238,11 @@ impl L3 {
                 amount_to_send = original;
                 should_delete = true;
             } else {
+                // update the current base quantity of the order
                 order.cq = decreased;
+                // update the current public quantity of the order
+                // if pq is bigger than cq, keep pq unchanged, otherwise set pq to cq
+                order.pq = if order.pq > order.cq { order.pq } else { order.cq };
             }
         }
 

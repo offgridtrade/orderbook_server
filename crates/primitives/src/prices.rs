@@ -121,6 +121,38 @@ impl L2 {
         self.ask_levels.insert(scale, levels);
     }
 
+    pub fn clear_head(&mut self, is_bid: bool) -> Result<Option<u64>, L2Error> {
+        if is_bid {
+            let old_head = self.bid_price_head.unwrap();
+            // update the head of the bid price linked list
+            // if the next is empty, set the head and tail to none
+            if self.bid_price_nodes.get(&old_head).and_then(|node| node.next).is_none() {
+                self.bid_price_head = None;
+                self.bid_price_tail = None;
+            }
+            else {
+                self.bid_price_head = self.bid_price_nodes.get(&old_head).and_then(|node| node.next);
+            }
+            // remove the node from the bid price nodes map
+            self.bid_price_nodes.remove(&old_head);
+            Ok(self.bid_price_head)
+        } else {
+            let old_head = self.ask_price_head.unwrap();
+            // update the head of the ask price linked list
+            // if the next is empty, set the head and tail to none
+            if self.ask_price_nodes.get(&old_head).and_then(|node| node.next).is_none() {
+                self.ask_price_head = None;
+                self.ask_price_tail = None;
+            }
+            else {
+                self.ask_price_head = self.ask_price_nodes.get(&old_head).and_then(|node| node.next);
+            }
+            // remove the node from the ask price nodes map
+            self.ask_price_nodes.remove(&old_head);
+            Ok(self.ask_price_head)
+        }
+    }
+
     pub fn insert_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
         if is_bid {
             self._insert_bid_price(price)

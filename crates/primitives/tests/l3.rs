@@ -153,6 +153,162 @@ fn decrease_order_removes_when_below_dust() {
 }
 
 #[test]
+fn decrease_order_updates_cq_correctly() {
+    let mut storage = L3::new();
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 50, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // Initial state: iq=100, pq=50, cq=100
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.iq, 100);
+    assert_eq!(order.pq, 50);
+    assert_eq!(order.cq, 100);
+
+    // Decrease by 30, should update cq to 70
+    let (sent, deleted_price) = storage.decrease_order(id, 30, 1, false).unwrap();
+    assert_eq!(sent, 30);
+    assert_eq!(deleted_price, None);
+
+    // Verify cq is updated to 70
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.cq, 70);
+    assert_eq!(order.iq, 100);
+}
+
+#[test]
+fn decrease_order_pq_unchanged_when_pq_greater_than_cq() {
+    let mut storage = L3::new();
+    // Create order with pq=50, iq=100, so initially cq=100
+    // We'll decrease cq to 30, so pq=50 > cq=30
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 50, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // Initial state: pq=50, cq=100 (pq < cq)
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 50);
+    assert_eq!(order.cq, 100);
+
+    // Decrease by 70, cq becomes 30, so pq=50 > cq=30
+    let (sent, _) = storage.decrease_order(id, 70, 1, false).unwrap();
+    assert_eq!(sent, 70);
+
+    // Verify pq remains unchanged (50) since pq > cq
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 50);
+    assert_eq!(order.cq, 30);
+}
+
+#[test]
+fn decrease_order_pq_updated_when_pq_less_than_or_equal_to_cq() {
+    let mut storage = L3::new();
+    // Create order with pq=50, iq=100, so initially cq=100
+    // After decreasing by 20, cq=80, so pq=50 < cq=80, so pq should be set to 80
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 50, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // Initial state: pq=50, cq=100
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 50);
+    assert_eq!(order.cq, 100);
+
+    // Decrease by 20, cq becomes 80, so pq=50 < cq=80
+    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    assert_eq!(sent, 20);
+
+    // Verify pq is updated to cq (80) since pq <= cq
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 80);
+}
+
+#[test]
+fn decrease_order_pq_equal_to_cq_after_decrease() {
+    let mut storage = L3::new();
+    // Create order with pq=80, iq=100, so initially cq=100
+    // After decreasing by 20, cq=80, so pq=80 == cq=80
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 80, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // Initial state: pq=80, cq=100
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 100);
+
+    // Decrease by 20, cq becomes 80, so pq=80 == cq=80
+    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    assert_eq!(sent, 20);
+
+    // Verify pq is set to cq (80) since pq <= cq
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 80);
+}
+
+#[test]
+fn decrease_order_pq_unchanged_when_pq_equals_cq_and_both_decrease() {
+    let mut storage = L3::new();
+    // Create order with pq=100, iq=100, so initially cq=100 (pq == cq)
+    // After decreasing by 30, both become 70, so pq should be set to 70
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 100, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // Initial state: pq=100, cq=100 (pq == cq)
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 100);
+    assert_eq!(order.cq, 100);
+
+    // Decrease by 30, cq becomes 70, so pq=100 > cq=70
+    let (sent, _) = storage.decrease_order(id, 30, 1, false).unwrap();
+    assert_eq!(sent, 30);
+
+    // Verify pq remains 100 since pq > cq
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 100);
+    assert_eq!(order.cq, 70);
+}
+
+#[test]
+fn decrease_order_multiple_decreases_updates_pq_correctly() {
+    let mut storage = L3::new();
+    // Create order with pq=50, iq=100, so initially cq=100
+    let (id, _) = storage
+        .create_order("1", "alice", 100, 100, 50, 0)
+        .expect("create order");
+    storage.insert_id(100, id, 100).expect("insert id");
+
+    // First decrease: 100 -> 80, pq=50 < cq=80, so pq becomes 80
+    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    assert_eq!(sent, 20);
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 80);
+
+    // Second decrease: 80 -> 60, pq=80 > cq=60, so pq stays 80
+    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    assert_eq!(sent, 20);
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 60);
+
+    // Third decrease: 60 -> 40, pq=80 > cq=40, so pq stays 80
+    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    assert_eq!(sent, 20);
+    let order = storage.get_order(id).unwrap();
+    assert_eq!(order.pq, 80);
+    assert_eq!(order.cq, 40);
+}
+
+#[test]
 fn serialize_and_deserialize_storage() {
     let storage = setup_orders();
     let encoded = bincode::serialize(&storage).expect("serialize storage");

@@ -76,4 +76,84 @@ fn insert_ask_price_in_middle_of_list() {
     assert_eq!(l2.ask_price_nodes, BTreeMap::from([(80, PriceNode { prev: None, next: Some(90) }), (90, PriceNode { prev: Some(80), next: Some(100) })]));
 }
 
+#[test]
+fn clear_bid_head_clears_head_price() {
+    let mut l2 = L2::new();
+    l2.insert_price(true, 100).expect("insert bid price 100");
+    l2.insert_price(true, 90).expect("insert bid price 90");
+    l2.insert_price(true, 80).expect("insert bid price 80");
+    
+    // Verify initial state: head is 100, tail is 80
+    assert_eq!(l2.bid_price_head, Some(100));
+    assert_eq!(l2.bid_price_tail, Some(80));
+    
+    // Clear the head (100), should move to next (90)
+    let result = l2.clear_head(true);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(90));
+    
+    // Verify head moved to 90, tail remains 80
+    assert_eq!(l2.bid_price_head, Some(90));
+    assert_eq!(l2.bid_price_tail, Some(80));
+}
+
+#[test]
+fn clear_ask_head_clears_head_price() {
+    let mut l2 = L2::new();
+    l2.insert_price(false, 80).expect("insert ask price 80");
+    l2.insert_price(false, 90).expect("insert ask price 90");
+    l2.insert_price(false, 100).expect("insert ask price 100");
+    
+    // Verify initial state: head is 80, tail is 100
+    assert_eq!(l2.ask_price_head, Some(80));
+    assert_eq!(l2.ask_price_tail, Some(100));
+    
+    // Clear the head (80), should move to next (90)
+    let result = l2.clear_head(false);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(90));
+    
+    // Verify head moved to 90, tail remains 100
+    assert_eq!(l2.ask_price_head, Some(90));
+    assert_eq!(l2.ask_price_tail, Some(100));
+}
+
+#[test]
+fn clear_bid_head_clears_last_price() {
+    let mut l2 = L2::new();
+    l2.insert_price(true, 100).expect("insert bid price 100");
+    
+    // Verify initial state: head is 100, tail is 100 (same when only one price)
+    assert_eq!(l2.bid_price_head, Some(100));
+    assert_eq!(l2.bid_price_tail, Some(100));
+    
+    // Clear the head (100), should become None since there's no next
+    let result = l2.clear_head(true);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+    
+    // Verify both head and tail are now None
+    assert_eq!(l2.bid_price_head, None);
+    assert_eq!(l2.bid_price_tail, None);
+}
+
+#[test]
+fn clear_ask_head_clears_last_price() {
+    let mut l2 = L2::new();
+    l2.insert_price(false, 100).expect("insert ask price 100");
+    
+    // Verify initial state: head is 100, tail is 100 (same when only one price)
+    assert_eq!(l2.ask_price_head, Some(100));
+    assert_eq!(l2.ask_price_tail, Some(100));
+    
+    // Clear the head (100), should become None since there's no next
+    let result = l2.clear_head(false);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+    
+    // Verify both head and tail are now None
+    assert_eq!(l2.ask_price_head, None);
+    assert_eq!(l2.ask_price_tail, None);
+}
+
 
