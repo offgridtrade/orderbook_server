@@ -18,6 +18,8 @@ pub struct Order {
     pub cq: u64,
     /// timestamp of the order in milliseconds
     pub timestamp: i64,
+    /// expires at timestamp in milliseconds
+    pub expires_at: i64,
 }
 
 impl Order {
@@ -30,6 +32,7 @@ impl Order {
         iq: u64,
         cq: u64,
         timestamp: i64,
+        expires_at: i64,
     ) -> Self {
         Self {
             cid,
@@ -39,6 +42,7 @@ impl Order {
             iq,
             cq,
             timestamp,
+            expires_at,
         }
     }
 }
@@ -173,11 +177,12 @@ impl L3 {
         iq: u64,
         pq: u64,
         timestamp: i64,
+        expires_at: i64,
     ) -> Result<(u32, bool), L3Error> {
         Self::ensure_price(price)?;
         let cid = cid.into();
         let owner = owner.into();
-        let order = Order::new(cid, owner, price, pq, iq, iq, timestamp);
+        let order = Order::new(cid, owner, price, pq, iq, iq, timestamp, expires_at);
 
         self.count = if self.count == 0 || self.count == u32::MAX {
             1
