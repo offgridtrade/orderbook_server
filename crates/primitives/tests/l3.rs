@@ -4,17 +4,17 @@ use std::collections::HashMap;
 fn setup_orders() -> L3 {
     let mut storage = L3::new();
     let (id1, _) = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000)
+        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
         .expect("create order 1");
     storage.insert_id(100, id1, 50).expect("insert order 1");
 
     let (id2, _) = storage
-        .create_order("2", "bob", 100, 75, 75, 0, 10000)
+        .create_order("2", "bob", 100, 75, 75, 0, 10000, 1000)
         .expect("create order 2");
     storage.insert_id(100, id2, 75).expect("insert order 2");
 
     let (id3, _) = storage
-        .create_order("3", "carol", 100, 20, 20, 0, 10000)
+        .create_order("3", "carol", 100, 20, 20, 0, 10000, 1000)
         .expect("create order 3");
     storage.insert_id(100, id3, 20).expect("insert order 3");
 
@@ -25,14 +25,14 @@ fn setup_orders_with_price_level_shift_scenario() -> L3 {
     let mut storage = L3::new();
     let price = 100u64;
     let (id1, _) = storage
-        .create_order("1", "alice", price, 50, 50, 0, 10000)
+        .create_order("1", "alice", price, 50, 50, 0, 10000, 1000)
         .expect("create order 1");
     storage.insert_id(price, id1, 50).expect("insert order 1");
     storage
 }
 
 fn sample_order() -> Order {
-    Order::new(vec![1], vec![2], 100, 10, 10, 10, 0, 10000)
+    Order::new(vec![1], vec![2], 100, 10, 10, 10, 0, 10000, 1000)
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn delete_order_removes_order_from_storage_end() {
 fn decrease_order_removes_when_below_dust() {
     let mut storage = L3::new();
     let (id, _) = storage
-        .create_order("1", "alice", 100, 75, 75, 0, 10000)
+        .create_order("1", "alice", 100, 75, 75, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 75).expect("insert id");
 
@@ -156,7 +156,7 @@ fn decrease_order_removes_when_below_dust() {
 fn decrease_order_updates_cq_correctly() {
     let mut storage = L3::new();
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000)
+        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -183,7 +183,7 @@ fn decrease_order_pq_unchanged_when_pq_greater_than_cq() {
     // Create order with pq=50, iq=100, so initially cq=100
     // We'll decrease cq to 30, so pq=50 > cq=30
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000)
+        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -208,7 +208,7 @@ fn decrease_order_pq_updated_when_pq_less_than_or_equal_to_cq() {
     // Create order with pq=50, iq=100, so initially cq=100
     // After decreasing by 20, cq=80, so pq=50 < cq=80, so pq should be set to 80
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000)
+        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -233,7 +233,7 @@ fn decrease_order_pq_equal_to_cq_after_decrease() {
     // Create order with pq=80, iq=100, so initially cq=100
     // After decreasing by 20, cq=80, so pq=80 == cq=80
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 80, 0, 10000)
+        .create_order("1", "alice", 100, 100, 80, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -258,7 +258,7 @@ fn decrease_order_pq_unchanged_when_pq_equals_cq_and_both_decrease() {
     // Create order with pq=100, iq=100, so initially cq=100 (pq == cq)
     // After decreasing by 30, both become 70, so pq should be set to 70
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 100, 0, 10000)
+        .create_order("1", "alice", 100, 100, 100, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -282,7 +282,7 @@ fn decrease_order_multiple_decreases_updates_pq_correctly() {
     let mut storage = L3::new();
     // Create order with pq=50, iq=100, so initially cq=100
     let (id, _) = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000)
+        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
         .expect("create order");
     storage.insert_id(100, id, 100).expect("insert id");
 
@@ -340,7 +340,7 @@ fn ensure_price_zero_is_error() {
 fn insert_id_creates_single_order_node() {
     let mut storage = L3::new();
     let (id, _) = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000)
+        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
         .expect("create order 1");
     storage.insert_id(100, id, 50).expect("insert order 1");
     
@@ -357,17 +357,17 @@ fn insert_id_creates_single_order_node() {
 fn insert_id_creates_fifo_linked_list() {
     let mut storage = L3::new();
     let (id1, _) = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000)
+        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
         .expect("create order 1");
     storage.insert_id(100, id1, 50).expect("insert order 1");
 
     let (id2, _) = storage
-        .create_order("2", "bob", 100, 75, 75, 0, 10000)
+        .create_order("2", "bob", 100, 75, 75, 0, 10000, 1000)
         .expect("create order 2");
     storage.insert_id(100, id2, 75).expect("insert order 2");
 
     let (id3, _) = storage
-        .create_order("3", "carol", 100, 20, 20, 0, 10000)
+        .create_order("3", "carol", 100, 20, 20, 0, 10000, 1000)
         .expect("create order 3");
     storage.insert_id(100, id3, 20).expect("insert order 3");
     

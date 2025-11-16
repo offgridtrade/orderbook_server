@@ -1,6 +1,7 @@
 pub mod market;
 pub mod prices;
 pub mod orders;
+pub mod event;
 pub mod orderbook;
 pub mod matching_engine;
 

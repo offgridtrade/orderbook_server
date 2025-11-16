@@ -160,9 +160,11 @@ impl OrderBook {
     /// the function also returns the base fee and quote fee to send to the protocol.
     pub fn execute(
         &mut self,
+        is_bid: bool,
         order_id: u32,
         amount: u64,
-        clear: bool
+        clear: bool,
+        taker_fee_bps: u16,
     ) -> Result<(u64, u64, u64, u64), OrderBookError> {
         let amount = amount;
         let clear = clear;
@@ -180,7 +182,7 @@ impl OrderBook {
     }
 
     fn _update_levels() {
-        
+
     }
 
     /// Cancels an order.
