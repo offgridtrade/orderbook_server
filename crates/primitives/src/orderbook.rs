@@ -54,20 +54,34 @@ impl OrderBook {
         }
     }
 
-    /// Gets the required amount of liquidity to match an order and clear the order.
+    /// Gets the required amount of base liquidity to match an order and clear the order.
     pub fn get_required() {
-        
+        let required = self.l2.get_required(is_bid, price, amount)?;
+        Ok(required)
     }
 
+
+    /// clears empty head of the order book where price is in linked list, but order is not in the price level
     pub fn clear_empty_head(&mut self, is_bid: bool) -> Result<u64, OrderBookError> {
-        let head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
-        let order_id = if is_bid { self.l3.head(head.unwrap()) } else { self.l3.head(head.unwrap()) };
-        while order_id.is_some() && head.is_some() {
-            let head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
-            let order_id = if is_bid { self.l3.head(head.unwrap()) } else { self.l3.head(head.unwrap()) };
+        // Get the current head price
+        let mut head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
+        
+        // While head exists and has no orders, clear it and move to the next head
+        while let Some(head_price) = head {
+            // Check if there are orders at this price level
+            let order_id = self.l3.head(head_price);
+            
+            // If there are orders at this price level, we're done
+            if order_id.is_some() {
+                return Ok(head_price);
+            }
+            
+            // No orders at this price level, clear the head and move to next
+            head = self.l2.clear_head(is_bid)?;
         }
-        let delete_price = self.l2.clear_head(is_bid)?;
-        Ok(delete_price.unwrap())
+        
+        // No head exists (all heads were empty and cleared)
+        Err(OrderBookError::PriceIsZero)
     }
 
     pub fn fpop() {
@@ -148,6 +162,7 @@ impl OrderBook {
     /// - `owner` is the owner of the order.
     pub fn cancel_order(
         &mut self,
+        is_bid: bool,
         order_id: u32,
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
@@ -158,7 +173,11 @@ impl OrderBook {
         if order.owner != owner {
             return Err(OrderBookError::OrderNotOwnedBySender);
         }
-        let _delete_price = self.l3.delete_order(order_id)?.ok_or(L3Error::OrderDoesNotExist(order_id))?;
+        let delete_price = self.l3.delete_order(order_id)?.ok_or(L3Error::OrderDoesNotExist(order_id))?;
+        // if delete price is some, delete the price level
+        if delete_price.is_some() {
+            self.l2.delete_price_level(delete_price.unwrap())?;
+        }
         Ok(())
     }
 }

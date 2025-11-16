@@ -305,4 +305,165 @@ impl L2 {
             return Ok(());
         }
     }
+
+    // remove price from the price linked list
+    pub fn remove_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
+        if is_bid {
+            self._remove_bid_price(price)
+        }
+        else {
+            self._remove_ask_price(price)
+        }
+    }
+    // remove price from the bid price linked list
+    fn _remove_bid_price(&mut self, price: u64) -> Result<(), L2Error> {
+        // Get the node to be removed before removing it
+        let node = match self.bid_price_nodes.get(&price) {
+            Some(node) => node.clone(),
+            None => return Ok(()), // Price doesn't exist, nothing to remove
+        };
+
+        // Update the previous node's next pointer
+        if let Some(prev_price) = node.prev {
+            if let Some(prev_node) = self.bid_price_nodes.get_mut(&prev_price) {
+                prev_node.next = node.next;
+            }
+        } else {
+            // This is the head, update head pointer
+            self.bid_price_head = node.next;
+        }
+
+        // Update the next node's prev pointer
+        if let Some(next_price) = node.next {
+            if let Some(next_node) = self.bid_price_nodes.get_mut(&next_price) {
+                next_node.prev = node.prev;
+            }
+        } else {
+            // This is the tail, update tail pointer
+            self.bid_price_tail = node.prev;
+        }
+
+        // Remove the node from the map
+        self.bid_price_nodes.remove(&price);
+
+        Ok(())
+    }
+
+    // remove price from the ask price linked list
+    fn _remove_ask_price(&mut self, price: u64) -> Result<(), L2Error> {
+        // Get the node to be removed before removing it
+        let node = match self.ask_price_nodes.get(&price) {
+            Some(node) => node.clone(),
+            None => return Ok(()), // Price doesn't exist, nothing to remove
+        };
+
+        // Update the previous node's next pointer
+        if let Some(prev_price) = node.prev {
+            if let Some(prev_node) = self.ask_price_nodes.get_mut(&prev_price) {
+                prev_node.next = node.next;
+            }
+        } else {
+            // This is the head, update head pointer
+            self.ask_price_head = node.next;
+        }
+
+        // Update the next node's prev pointer
+        if let Some(next_price) = node.next {
+            if let Some(next_node) = self.ask_price_nodes.get_mut(&next_price) {
+                next_node.prev = node.prev;
+            }
+        } else {
+            // This is the tail, update tail pointer
+            self.ask_price_tail = node.prev;
+        }
+
+        // Remove the node from the map
+        self.ask_price_nodes.remove(&price);
+
+        Ok(())
+    }
+
+    /// Helper function to collect all bid prices in order (descending)
+    pub fn collect_bid_prices(&self) -> Vec<u64> {
+        let mut prices = Vec::new();
+        let mut current = self.bid_price_head;
+        while let Some(price) = current {
+            prices.push(price);
+            current = self.bid_price_nodes.get(&price).and_then(|node| node.next);
+        }
+        prices
+    }
+
+    /// Helper function to collect all ask prices in order (ascending)
+    pub fn collect_ask_prices(&self) -> Vec<u64> {
+        let mut prices = Vec::new();
+        let mut current = self.ask_price_head;
+        while let Some(price) = current {
+            prices.push(price);
+            current = self.ask_price_nodes.get(&price).and_then(|node| node.next);
+        }
+        prices
+    }
+
+    /// Helper function to format a u64 number (in 8 decimals) to a string with 8 decimal places
+    /// Example: 100_000_000 -> "1.00000000", 50_000_000 -> "0.50000000"
+    fn format_8_decimals(value: u64) -> String {
+        const DECIMAL_PLACES: u64 = 100_000_000; // 10^8
+        
+        let integer_part = value / DECIMAL_PLACES;
+        let decimal_part = value % DECIMAL_PLACES;
+        
+        format!("{}.{:08}", integer_part, decimal_part)
+    }
+
+    /// get L2 snapshot (raw numbers)
+    /// Returns an array of arrays where each inner array is [price in 8 decimals, base amount in 8 decimals]
+    /// The outer array has step length
+    pub fn get_snapshot_raw(&self, is_bid: bool, scale: u64, step: u32) -> Result<Vec<Vec<u64>>, L2Error> {
+        // Get the appropriate levels map based on is_bid
+        let levels_map = if is_bid {
+            &self.bid_levels
+        } else {
+            &self.ask_levels
+        };
+
+        // Get levels for the given scale, or empty vector if scale doesn't exist
+        let levels = levels_map.get(&scale).cloned().unwrap_or_default();
+
+        // Take step number of levels and convert to array format
+        let snapshot: Vec<Vec<u64>> = levels
+            .iter()
+            .take(step as usize)
+            .map(|level| {
+                vec![
+                    level.price,                    // price in 8 decimals
+                    level.quantity as u64,          // base amount in 8 decimals (convert from u128 to u64)
+                ]
+            })
+            .collect();
+
+        Ok(snapshot)
+    }
+
+    /// get L2 snapshot (formatted strings)
+    /// Returns an array of arrays where each inner array is [price as string with 8 decimals, base amount as string with 8 decimals]
+    /// The outer array has step length
+    /// Numbers are formatted from raw 8-decimal integers to strings with 8 decimal places
+    pub fn get_snapshot(&self, is_bid: bool, scale: u64, step: u32) -> Result<Vec<Vec<String>>, L2Error> {
+        // Get raw snapshot first
+        let raw_snapshot = self.get_snapshot_raw(is_bid, scale, step)?;
+
+        // Convert raw numbers to formatted strings
+        let snapshot: Vec<Vec<String>> = raw_snapshot
+            .iter()
+            .map(|level| {
+                vec![
+                    Self::format_8_decimals(level[0]),  // format price
+                    Self::format_8_decimals(level[1]),  // format quantity
+                ]
+            })
+            .collect();
+
+        Ok(snapshot)
+    }
 }
