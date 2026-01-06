@@ -2,8 +2,9 @@
 use once_cell::sync::OnceCell;
 use std::sync::{mpsc, Mutex};
 use std::thread;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     OrderPlaced { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
     OrderMatched { maker_id: u64, taker_id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },

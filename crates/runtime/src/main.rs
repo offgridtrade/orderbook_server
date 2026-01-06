@@ -87,13 +87,14 @@ fn main() -> anyhow::Result<()> {
             
             match metrics_event_receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(event) => {
-                    match event {
-                        Event::OrderPlaced { .. } => {
-                            metrics_registry_for_events.orders_placed.inc();
-                        }
-                        Event::OrderMatched { .. } => {
-                            metrics_registry_for_events.orders_matched.inc();
-                        }
+                    match event.clone() {
+                        Event::OrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
+                        Event::OrderMatched { .. } => metrics_registry_for_events.orders_matched.inc(),
+                        Event::OrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
+                        Event::OrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
+                        Event::OrderFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
+                        Event::OrderPartiallyFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
+                        Event::OrderFullyFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -189,7 +190,7 @@ fn main() -> anyhow::Result<()> {
                 // Receive order message from DEALER client
                 if let Some((identity, msg)) = network_module::receive_order(order_router) {
                     // Process order
-                    let order_data = msg.as_slice();
+                    let order_data = msg.to_vec();
                     
                     // TODO: Parse order message and process through orderbook
                     // Example:

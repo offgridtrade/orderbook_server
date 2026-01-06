@@ -12,6 +12,12 @@ pub struct MatchingEngine {
 }
 
 impl MatchingEngine {
+
+    pub fn new() -> Self {
+        Self {
+            orderbook: OrderBook::default(),
+        }
+    }
     
     /// Match orders at a specific price level
     /// Returns remaining_amount after matching
@@ -396,6 +402,8 @@ impl MatchingEngine {
     ) -> Result<OrderMatch, OrderBookError> {
         
         let clear = false;
+        let order_id = existing_order_id.unwrap_or(0);
+        let matched = amount;
         self.orderbook
             .execute(false, order_id, matched, clear, taker_fee_bps)
     }

@@ -43,8 +43,10 @@ pub struct L2 {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum L2Error {
-    #[error("price is zero")]
+    #[error("price is zero in L2 orderbook level")]
     PriceIsZero,
+    #[error("price is missing in L2 orderbook level: {price} isBid: {is_bid} isPlaced: {is_placed}")]
+    PriceMissing { price: u64, is_bid: bool, is_placed: bool },
 }
 
 impl L2 {

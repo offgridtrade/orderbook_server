@@ -163,6 +163,9 @@ impl OrderBook {
             expires_at,
             maker_fee_bps,
         )?;
+
+        // update the price level on the orderbook
+        self._update_price_level(true, true, price, amount, None)?;
         Ok((id, found_dormant))
     }
 
@@ -198,13 +201,16 @@ impl OrderBook {
             expires_at,
             maker_fee_bps,
         )?;
+
+        // update the price level on the orderbook
+        self._update_price_level(true, false, price, amount, None)?;
         Ok((id, found_dormant))
     }
 
     /// Executes a trade.
     /// - returns the trade details.
     /// - `is_bid` is whether the order is a bid order.
-    /// - `order_id` is the id of the order.
+    /// - `order_id` is the id of the order to match against in the orderbook.
     /// - `amount` is the amount of the order.
     /// - `clear` is whether to clear the order.
     /// - `taker_fee_bps` is the taker fee basis points of the order.
@@ -223,7 +229,7 @@ impl OrderBook {
             let order = self.l3.get_order(order_id)?;
             (order.price, order.owner.clone(), order.maker_fee_bps)
         };
-        
+
         let (amount_to_send, delete_price) =
             self.l3.decrease_order(order_id, amount, 1u64, clear)?;
 
@@ -248,9 +254,9 @@ impl OrderBook {
         );
 
         // adjust price level on the matched amount
-        if let Some(price) = delete_price {
-            self.l2.remove_price(is_bid, price)?;
-        }
+        // Update levels and remove price if level becomes 0 or below
+        // Also handle delete_price removal if an order was fully consumed
+        self._update_price_level(false, is_bid, order_price, amount_to_send, delete_price)?;
 
         Ok(OrderMatch {
             sender: order_owner.clone(),
@@ -273,13 +279,97 @@ impl OrderBook {
     ) -> (u64, u64) {
         // find maker and taker from base and quote amount
         if is_bid {
-            (base_amount * maker_fee_bps as u64 / 10000, quote_amount * taker_fee_bps as u64 / 10000)
+            (
+                base_amount * maker_fee_bps as u64 / 10000,
+                quote_amount * taker_fee_bps as u64 / 10000,
+            )
         } else {
-            (base_amount * taker_fee_bps as u64 / 10000, quote_amount * maker_fee_bps as u64 / 10000)
+            (
+                base_amount * taker_fee_bps as u64 / 10000,
+                quote_amount * maker_fee_bps as u64 / 10000,
+            )
         }
     }
 
-    fn _update_levels() {}
+    /// updates the levels on the orderbook in the price level linked list
+    /// - `is_bid` is whether the order is a bid order.
+    /// - `price` is the price of the order.
+    /// - `amount` is the amount to add to the level when isPlaced is true, or the amount to subtract from the level when isPlaced is false.
+    /// - `delete_price` is an optional price that should be removed (when an order was fully consumed).
+    /// Removes the price if the level becomes 0 or below.
+    fn _update_price_level(
+        &mut self,
+        is_placed: bool,
+        is_bid: bool,
+        price: u64,
+        amount: u64,
+        delete_price: Option<u64>,
+    ) -> Result<(), OrderBookError> {
+        if is_placed {
+            // throw L2 price missing error if price is not found
+            let current_level; 
+            if is_bid {
+                current_level = self.l2.bid_level(price).ok_or(OrderBookError::L2(L2Error::PriceMissing { price, is_bid, is_placed }))?;
+            } else {
+                current_level = self.l2.ask_level(price).ok_or(OrderBookError::L2(L2Error::PriceMissing { price, is_bid, is_placed }))?;
+            }
+
+            // Calculate new level quantity (add amount)
+            let new_level = current_level.saturating_add(amount);
+
+            if is_bid {
+                self.l2.set_bid_level(price, new_level);
+            } else {
+                self.l2.set_ask_level(price, new_level);
+            }
+            Ok(())
+        } else {
+            // Get current level quantity
+            let current_level;
+            if is_bid {
+                current_level = self.l2.bid_level(price).ok_or(OrderBookError::L2(L2Error::PriceMissing { price, is_bid, is_placed }))?;
+            } else {
+                current_level =self.l2.ask_level(price).ok_or(OrderBookError::L2(L2Error::PriceMissing { price, is_bid, is_placed }))?;
+            };
+
+            // Calculate new level quantity (subtract amount)
+            // Use saturating_sub to prevent underflow, but we still check for 0
+            let new_level = current_level.saturating_sub(amount);
+
+            // Update the level
+            if is_bid {
+                if new_level > 0 {
+                    self.l2.set_bid_level(price, new_level);
+                } else {
+                    // Level is 0 or below, remove the price
+                    self.l2.set_bid_level(price, 0);
+                    // Check if price level is empty in L3, and if so, remove it
+                    if self.l3.is_empty(price) {
+                        self.l2.remove_price(is_bid, price)?;
+                    }
+                }
+            } else {
+                if new_level > 0 {
+                    self.l2.set_ask_level(price, new_level);
+                } else {
+                    // Level is 0 or below, remove the price
+                    self.l2.set_ask_level(price, 0);
+                    // Check if price level is empty in L3, and if so, remove it
+                    if self.l3.is_empty(price) {
+                        self.l2.remove_price(is_bid, price)?;
+                    }
+                }
+            }
+
+            // If delete_price is Some, it means an order was fully consumed and price level was emptied
+            // Remove that price level
+            if let Some(delete_price) = delete_price {
+                self.l2.remove_price(is_bid, delete_price)?;
+            }
+
+            Ok(())
+        }
+    }
 
     /// Cancels an order.
     /// - returns the amount to send and the delete price.

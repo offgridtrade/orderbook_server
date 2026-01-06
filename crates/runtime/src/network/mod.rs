@@ -12,6 +12,16 @@ pub struct ZmqServer {
     order_router: Socket,
 }
 
+// `zmq::Socket` uses an internal raw pointer (`*mut c_void`) and is not marked
+// `Send`/`Sync` by default, so wrapping it in a struct behind `Arc` trips the
+// thread-safety bounds on `thread::spawn`. In this codebase each socket is
+// confined to a single thread (PUB used only in the event thread, ROUTER only
+// in the main thread), so it is safe to treat `ZmqServer` as `Send + Sync`.
+// We declare that explicitly here so `Arc<ZmqServer>` can be moved into
+// spawned threads.
+unsafe impl Send for ZmqServer {}
+unsafe impl Sync for ZmqServer {}
+
 impl ZmqServer {
     /// Create a new ZMQ server with PUB socket for events and ROUTER socket for orders
     pub fn new(context: &Context, event_port: u16, order_port: u16) -> Result<Self> {
@@ -47,7 +57,7 @@ pub fn spawn_event_streaming_thread(
     event_rx: mpsc::Receiver<Vec<u8>>,
     shutdown_flag: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
+        thread::spawn(move || {
         println!("Event streaming thread started");
         loop {
             if shutdown_flag.load(Ordering::Relaxed) {
@@ -93,9 +103,10 @@ pub fn receive_order(order_router: &Socket) -> Option<(zmq::Message, zmq::Messag
 /// Send an acknowledgment back to the client via ROUTER socket
 pub fn send_ack(order_router: &Socket, identity: &zmq::Message, ack: &str) -> Result<()> {
     // ROUTER socket sends: [identity, empty, message]
-    order_router.send(identity, zmq::SNDMORE)?;
-    order_router.send(&[], zmq::SNDMORE)?;
-    order_router.send(ack, 0)?;
+    // send the identity frame as raw bytes so ZMQ can route back to the client
+    order_router.send(identity.as_ref(), zmq::SNDMORE)?;
+    order_router.send(&[] as &[u8], zmq::SNDMORE)?;
+    order_router.send(ack.as_bytes(), 0)?;
     Ok(())
 }
 
