@@ -5,9 +5,13 @@ use std::thread;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    OrderPlaced { id: u64, qty: u64 },
-    OrderMatched { maker_id: u64, taker_id: u64, qty: u64 },
-    // ...
+    OrderPlaced { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderMatched { maker_id: u64, taker_id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderCancelled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderExpired { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderPartiallyFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderFullyFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
 }
 
 pub trait EventBackend: Send + 'static {

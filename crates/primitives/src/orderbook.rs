@@ -1,6 +1,18 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{L1, L2, L3, orders::L3Error, prices::L2Error, market::L1Error};
+use crate::{market::L1Error, orders::L3Error, prices::L2Error, L1, L2, L3};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+
+pub struct OrderMatch {
+    pub sender: Vec<u8>,
+    pub owner: Vec<u8>,
+    pub base_amount: u64,
+    pub quote_amount: u64,
+    pub base_fee: u64,
+    pub quote_fee: u64,
+    pub trade_id: u64,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OrderBook {
@@ -54,41 +66,63 @@ impl OrderBook {
         }
     }
 
+    /// Gets the last matched price (lmp)
+    pub fn lmp(&self) -> Option<u64> {
+        self.l1.lmp
+    }
+
+    /// Sets the last matched price (lmp)
+    pub fn set_lmp(&mut self, price: u64) {
+        self.l1.lmp = Some(price);
+    }
+
     /// Gets the required amount of base liquidity to match an order and clear the order.
     pub fn get_required(&self, order_id: u32) -> Result<u64, OrderBookError> {
         let order = self.l3.get_order(order_id)?;
         Ok(order.cq)
     }
 
-
     /// clears empty head of the order book where price is in linked list, but order is not in the price level
     pub fn clear_empty_head(&mut self, is_bid: bool) -> Result<u64, OrderBookError> {
         // Get the current head price
-        let mut head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
-        
+        let mut head = if is_bid {
+            self.l2.bid_head()
+        } else {
+            self.l2.ask_head()
+        };
+
         // While head exists and has no orders, clear it and move to the next head
         while let Some(head_price) = head {
             // Check if there are orders at this price level
             let order_id = self.l3.head(head_price);
-            
+
             // If there are orders at this price level, we're done
             if order_id.is_some() {
                 return Ok(head_price);
             }
-            
+
             // No orders at this price level, clear the head and move to next
             head = self.l2.clear_head(is_bid)?;
         }
-        
+
         // No head exists (all heads were empty and cleared)
         Err(OrderBookError::PriceIsZero)
     }
 
-    /// pop front on the orderbook 
+    /// clears empty head of the order book, returns 0 if no head exists (matches Solidity behavior)
+    pub fn clear_empty_head_or_zero(&mut self, is_bid: bool) -> u64 {
+        self.clear_empty_head(is_bid).unwrap_or(0)
+    }
+
+    /// pop front on the orderbook
     pub fn pop_front(&mut self, is_bid: bool) -> Result<u32, OrderBookError> {
         self.clear_empty_head(is_bid)?;
-        let head = if is_bid { self.l2.bid_head() } else { self.l2.ask_head() };
-        
+        let head = if is_bid {
+            self.l2.bid_head()
+        } else {
+            self.l2.ask_head()
+        };
+
         let head_price = head.unwrap();
         let (order_id, is_empty) = self.l3.pop_front(head_price)?;
         if is_empty {
@@ -114,11 +148,21 @@ impl OrderBook {
         public_amount: u64,
         timestamp: i64,
         expires_at: i64,
+        maker_fee_bps: u16,
     ) -> Result<(u32, bool), OrderBookError> {
         let owner = owner.into();
         let price = price;
         let amount = amount;
-        let (id, found_dormant) = self.l3.create_order(cid, owner, price, amount, public_amount, timestamp, expires_at)?;
+        let (id, found_dormant) = self.l3.create_order(
+            cid,
+            owner,
+            price,
+            amount,
+            public_amount,
+            timestamp,
+            expires_at,
+            maker_fee_bps,
+        )?;
         Ok((id, found_dormant))
     }
 
@@ -139,25 +183,33 @@ impl OrderBook {
         public_amount: u64,
         timestamp: i64,
         expires_at: i64,
+        maker_fee_bps: u16,
     ) -> Result<(u32, bool), OrderBookError> {
         let owner = owner.into();
         let price = price.into();
         let amount = amount.into();
-        let (id, found_dormant) = self.l3.create_order(cid, owner, price, amount, public_amount, timestamp, expires_at)?;
+        let (id, found_dormant) = self.l3.create_order(
+            cid,
+            owner,
+            price,
+            amount,
+            public_amount,
+            timestamp,
+            expires_at,
+            maker_fee_bps,
+        )?;
         Ok((id, found_dormant))
     }
 
     /// Executes a trade.
     /// - returns the trade details.
-    /// - `bid_order_id` is the id of the bid order.
-    /// - `ask_order_id` is the id of the ask order.
-    /// - `price` is the price of the trade.
-    /// - `amount` is the amount of the trade.
-    /// - `public_amount` is the public amount of the trade.
-    /// - `timestamp` is the timestamp of the trade.
+    /// - `is_bid` is whether the order is a bid order.
+    /// - `order_id` is the id of the order.
+    /// - `amount` is the amount of the order.
+    /// - `clear` is whether to clear the order.
+    /// - `taker_fee_bps` is the taker fee basis points of the order.
     /// when the order is cleared, the price level is updated on bid and ask side.
-    /// the function returns base and quote amount to send to the taker and maker.
-    /// the function also returns the base fee and quote fee to send to the protocol.
+    /// The function returns OrderMatch to report events
     pub fn execute(
         &mut self,
         is_bid: bool,
@@ -165,25 +217,69 @@ impl OrderBook {
         amount: u64,
         clear: bool,
         taker_fee_bps: u16,
-    ) -> Result<(u64, u64, u64, u64), OrderBookError> {
-        let amount = amount;
-        let clear = clear;
-        let (amount_to_send, delete_price) = self.l3.decrease_order(order_id, amount, 1u64, clear)?;
+    ) -> Result<OrderMatch, OrderBookError> {
+        // Get order data before mutable borrow
+        let (order_price, order_owner, maker_fee_bps) = {
+            let order = self.l3.get_order(order_id)?;
+            (order.price, order.owner.clone(), order.maker_fee_bps)
+        };
+        
+        let (amount_to_send, delete_price) =
+            self.l3.decrease_order(order_id, amount, 1u64, clear)?;
+
+        // Calculate base and quote amounts based on order type
+        let (base_amount, quote_amount) = if is_bid {
+            // For bid orders: amount_to_send is quote currency, calculate base received
+            let base = (amount_to_send as u128 * 1_0000_0000) / order_price as u128;
+            (base as u64, amount_to_send)
+        } else {
+            // For ask orders: amount_to_send is base currency, calculate quote received
+            let quote = (amount_to_send as u128 * order_price as u128) / 1_0000_0000;
+            (amount_to_send, quote as u64)
+        };
+
+        // Calculate fees using fee table
+        let (base_fee, quote_fee) = self._calculate_fees(
+            is_bid,
+            base_amount,
+            quote_amount,
+            maker_fee_bps,
+            taker_fee_bps,
+        );
+
         // adjust price level on the matched amount
-        Ok((amount_to_send, delete_price.unwrap(), base_fee, quote_fee))
+        if let Some(price) = delete_price {
+            self.l2.remove_price(is_bid, price)?;
+        }
+
+        Ok(OrderMatch {
+            sender: order_owner.clone(),
+            owner: order_owner,
+            base_amount,
+            quote_amount,
+            base_fee,
+            quote_fee,
+            trade_id: order_id as u64,
+        })
     }
 
-    fn _get_sent_funds() {
-
+    fn _calculate_fees(
+        &self,
+        is_bid: bool,
+        base_amount: u64,
+        quote_amount: u64,
+        maker_fee_bps: u16,
+        taker_fee_bps: u16,
+    ) -> (u64, u64) {
+        // find maker and taker from base and quote amount
+        if is_bid {
+            (base_amount * maker_fee_bps as u64 / 10000, quote_amount * taker_fee_bps as u64 / 10000)
+        } else {
+            (base_amount * taker_fee_bps as u64 / 10000, quote_amount * maker_fee_bps as u64 / 10000)
+        }
     }
 
-    fn _get_fee() {
-
-    }
-
-    fn _update_levels() {
-
-    }
+    fn _update_levels() {}
 
     /// Cancels an order.
     /// - returns the amount to send and the delete price.
