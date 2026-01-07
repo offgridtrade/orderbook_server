@@ -92,9 +92,9 @@ fn main() -> anyhow::Result<()> {
                         Event::OrderMatched { .. } => metrics_registry_for_events.orders_matched.inc(),
                         Event::OrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
                         Event::OrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
-                        Event::OrderFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
-                        Event::OrderPartiallyFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
-                        Event::OrderFullyFilled { id, is_bid, price, iqty, cqty, timestamp, expires_at } => todo!(),
+                        Event::OrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
+                        Event::OrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
+                        Event::OrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {

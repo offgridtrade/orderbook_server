@@ -13,6 +13,9 @@ pub struct Metrics {
     pub orders_matched: prometheus::IntCounter,
     pub orders_cancelled: prometheus::IntCounter,
     pub orders_expired: prometheus::IntCounter,
+    pub orders_filled: prometheus::IntCounter,
+    pub orders_partially_filled: prometheus::IntCounter,
+    pub orders_fully_filled: prometheus::IntCounter,
     pub orderbook_depth_bid: prometheus::IntGauge,
     pub orderbook_depth_ask: prometheus::IntGauge,
     pub order_processing_duration: prometheus::Histogram,
@@ -39,6 +42,18 @@ impl Metrics {
             "orderbook_orders_expired_total",
             "Total number of orders expired",
         )?;
+        let orders_filled = prometheus::IntCounter::new(
+            "orderbook_orders_filled_total",
+            "Total number of orders filled",
+        )?;
+        let orders_partially_filled = prometheus::IntCounter::new(
+            "orderbook_orders_partially_filled_total",
+            "Total number of orders partially filled",
+        )?;
+        let orders_fully_filled = prometheus::IntCounter::new(
+            "orderbook_orders_fully_filled_total",
+            "Total number of orders fully filled",
+        )?;
         let orderbook_depth_bid = prometheus::IntGauge::new(
             "orderbook_depth_bid",
             "Current depth of bid side orderbook",
@@ -60,6 +75,9 @@ impl Metrics {
         registry.register(Box::new(orders_matched.clone()))?;
         registry.register(Box::new(orders_cancelled.clone()))?;
         registry.register(Box::new(orders_expired.clone()))?;
+        registry.register(Box::new(orders_filled.clone()))?;
+        registry.register(Box::new(orders_partially_filled.clone()))?;
+        registry.register(Box::new(orders_fully_filled.clone()))?;
         registry.register(Box::new(orderbook_depth_bid.clone()))?;
         registry.register(Box::new(orderbook_depth_ask.clone()))?;
         registry.register(Box::new(order_processing_duration.clone()))?;
@@ -70,6 +88,9 @@ impl Metrics {
             orders_matched,
             orders_cancelled,
             orders_expired,
+            orders_filled,
+            orders_partially_filled,
+            orders_fully_filled,
             orderbook_depth_bid,
             orderbook_depth_ask,
             order_processing_duration,
