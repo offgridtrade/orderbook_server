@@ -6,13 +6,99 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    OrderPlaced { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderMatched { maker_id: u64, taker_id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderCancelled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderExpired { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderPartiallyFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
-    OrderFullyFilled { id: u64, is_bid: bool, price: u64, iqty: u64, cqty: u64, timestamp: i64, expires_at: i64 },
+    OrderPlaced { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderMatched { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64,
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        #[serde(with = "serde_bytes")]
+        taker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderCancelled { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderExpired { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderFilled { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderPartiallyFilled { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
+    OrderFullyFilled { 
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        is_bid: bool, 
+        price: u64, 
+        iqty: u64, 
+        cqty: u64, 
+        timestamp: i64, 
+        expires_at: i64 
+    },
 }
 
 pub trait EventBackend: Send + 'static {

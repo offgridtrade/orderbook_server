@@ -28,17 +28,17 @@ pub struct L2 {
     /// Mapping price -> node of the ask price linked list
     pub ask_price_nodes: BTreeMap<u64, PriceNode>,
     /// Bid levels sorted by price descending
-    pub bid_level: BTreeMap<u64, u64>,
+    pub bid_level_map: BTreeMap<u64, u64>,
     /// Ask levels sorted by price ascending
-    pub ask_level: BTreeMap<u64, u64>,
+    pub ask_level_map: BTreeMap<u64, u64>,
     /// Bid levels sorted by price descending for snapshot display
     /// key is scale in 8 decimals integer (e.g. 100000000 for 1.00000000, 1000000000 for 10.00000000)
     /// value is a vector of levels in the quantized price space
-    pub bid_levels: BTreeMap<u64, Vec<Level>>,
+    pub bid_level_list: BTreeMap<u64, Vec<Level>>,
     /// Ask levels sorted by price ascending for snapshot display
     /// key is scale in 8 decimals integer (e.g. 100000000 for 1.00000000, 1000000000 for 10.00000000)
     /// value is a vector of levels in the quantized price space
-    pub ask_levels: BTreeMap<u64, Vec<Level>>,
+    pub ask_level_list: BTreeMap<u64, Vec<Level>>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -58,10 +58,10 @@ impl L2 {
             ask_price_tail: None,
             bid_price_nodes: BTreeMap::new(),
             ask_price_nodes: BTreeMap::new(),
-            bid_level: BTreeMap::new(),
-            ask_level: BTreeMap::new(),
-            bid_levels: BTreeMap::new(),
-            ask_levels: BTreeMap::new(),
+            bid_level_map: BTreeMap::new(),
+            ask_level_map: BTreeMap::new(),
+            bid_level_list: BTreeMap::new(),
+            ask_level_list: BTreeMap::new(),
         }
     }
 
@@ -82,45 +82,45 @@ impl L2 {
     }
 
     pub fn bid_level(&self, price: u64) -> Option<u64> {
-        self.bid_level.get(&price).copied()
+        self.bid_level_map.get(&price).copied()
     }
 
     pub fn ask_level(&self, price: u64) -> Option<u64> {
-        self.ask_level.get(&price).copied()
+        self.ask_level_map.get(&price).copied()
     }
 
     pub fn bid_levels(&self, scale: u64) -> &Vec<Level> {
-        &self.bid_levels.get(&scale).unwrap()
+        &self.bid_level_list.get(&scale).unwrap()
     }
 
     pub fn ask_levels(&self, scale: u64) -> &Vec<Level> {
-        &self.ask_levels.get(&scale).unwrap()
+        &self.ask_level_list.get(&scale).unwrap()
     }
 
     pub fn scale_bid_levels(&self, scale: u64, n: u32) -> Vec<Level> {
-        let levels = self.bid_levels.get(&scale).cloned().unwrap_or(Vec::new());
+        let levels = self.bid_level_list.get(&scale).cloned().unwrap_or(Vec::new());
         levels.iter().take(n as usize).cloned().collect()
     }
 
     pub fn scale_ask_levels(&self, scale: u64, n: u32) -> Vec<Level> {
-        let levels = self.ask_levels.get(&scale).cloned().unwrap_or(Vec::new());
+        let levels = self.ask_level_list.get(&scale).cloned().unwrap_or(Vec::new());
         levels.iter().take(n as usize).cloned().collect()
     }
 
     pub fn set_bid_level(&mut self, price: u64, level: u64) {
-        self.bid_level.insert(price, level);
+        self.bid_level_map.insert(price, level);
     }
 
     pub fn set_ask_level(&mut self, price: u64, level: u64) {
-        self.ask_level.insert(price, level);
+        self.ask_level_map.insert(price, level);
     }
 
     pub fn set_bid_levels(&mut self, scale: u64, levels: Vec<Level>) {
-        self.bid_levels.insert(scale, levels);
+        self.bid_level_list.insert(scale, levels);
     }
 
     pub fn set_ask_levels(&mut self, scale: u64, levels: Vec<Level>) {
-        self.ask_levels.insert(scale, levels);
+        self.ask_level_list.insert(scale, levels);
     }
 
     pub fn clear_head(&mut self, is_bid: bool) -> Result<Option<u64>, L2Error> {
@@ -250,11 +250,19 @@ impl L2 {
             self.ask_price_head = Some(price);
             // set the tail of the ask price linked list
             self.ask_price_tail = Some(price);
+            // create a node for the first price
+            self.ask_price_nodes.insert(price, PriceNode {
+                prev: None,
+                next: None,
+            });
             return Ok(());
         }
         else if price < self.ask_price_head.unwrap() {
             let old_head = self.ask_price_head.unwrap();
             self.ask_price_head = Some(price);
+            // update old head's prev pointer to point to new head
+            self.ask_price_nodes.get_mut(&old_head).map(|node| node.prev = Some(price));
+            // create node for new head
             self.ask_price_nodes.insert(price, PriceNode {
                 prev: None,
                 next: Some(old_head),
@@ -271,10 +279,14 @@ impl L2 {
                 let next = self.ask_price_nodes.get(&current.unwrap()).and_then(|node| node.next);
                 // next does not exist
                 if next.is_none() {
-                    // insert the price at the current position
-                    self.ask_price_nodes.insert(current.unwrap(), PriceNode {
-                        prev: None,
-                        next: Some(price),
+                    // insert the price at the tail position
+                    let curr = current.unwrap();
+                    // update current node's next pointer
+                    self.ask_price_nodes.get_mut(&curr).map(|node| node.next = Some(price));
+                    // create a node for the new price
+                    self.ask_price_nodes.insert(price, PriceNode {
+                        prev: Some(curr),
+                        next: None,
                     });
                     // set the tail of the ask price linked list
                     self.ask_price_tail = Some(price);
@@ -290,9 +302,11 @@ impl L2 {
                     else if next_val > price {
                         // To avoid mutable and immutable borrow at the same time, collect value first
                         let curr = current.unwrap();
-                        // Remove the link between the current price and the next price
+                        // Update current's next pointer to point to new price
                         self.ask_price_nodes.get_mut(&curr).map(|node| node.next = Some(price));
-                        // insert the link between the current price and the new price
+                        // Update next_val's prev pointer to point to new price
+                        self.ask_price_nodes.get_mut(&next_val).map(|node| node.prev = Some(price));
+                        // Create node for new price
                         self.ask_price_nodes.insert(price, PriceNode {
                             prev: Some(curr),
                             next: Some(next_val),
@@ -348,6 +362,9 @@ impl L2 {
         // Remove the node from the map
         self.bid_price_nodes.remove(&price);
 
+        // Remove the level from the level map
+        self.bid_level_map.remove(&price);
+
         Ok(())
     }
 
@@ -381,6 +398,9 @@ impl L2 {
 
         // Remove the node from the map
         self.ask_price_nodes.remove(&price);
+
+        // Remove the level from the level map
+        self.ask_level_map.remove(&price);
 
         Ok(())
     }
@@ -424,9 +444,9 @@ impl L2 {
     pub fn get_snapshot_raw(&self, is_bid: bool, scale: u64, step: u32) -> Result<Vec<Vec<u64>>, L2Error> {
         // Get the appropriate levels map based on is_bid
         let levels_map = if is_bid {
-            &self.bid_levels
+            &self.bid_level_list
         } else {
-            &self.ask_levels
+            &self.ask_level_list
         };
 
         // Get levels for the given scale, or empty vector if scale doesn't exist

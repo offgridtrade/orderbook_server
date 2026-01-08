@@ -51,3 +51,75 @@ fn updates_slippage_limits() {
     assert_eq!(l1.market_sell_slippage_limit, Some(12));
 }
 
+#[test]
+fn serialize_and_deserialize_l1() {
+    let mut l1 = L1::new();
+    l1.lmp = Some(110);
+    l1.bid_head = Some(120);
+    l1.ask_head = Some(130);
+    l1.limit_buy_slippage_limit = Some(9);
+    l1.limit_sell_slippage_limit = Some(10);
+    l1.market_buy_slippage_limit = Some(11);
+    l1.market_sell_slippage_limit = Some(12);
+
+    // Serialize to binary format
+    let encoded = postcard::to_allocvec(&l1).expect("serialize L1");
+    
+    // Deserialize from binary format
+    let decoded: L1 = postcard::from_bytes(&encoded).expect("deserialize L1");
+    
+    // Verify all fields match
+    assert_eq!(decoded.lmp, l1.lmp);
+    assert_eq!(decoded.bid_head, l1.bid_head);
+    assert_eq!(decoded.ask_head, l1.ask_head);
+    assert_eq!(decoded.limit_buy_slippage_limit, l1.limit_buy_slippage_limit);
+    assert_eq!(decoded.limit_sell_slippage_limit, l1.limit_sell_slippage_limit);
+    assert_eq!(decoded.market_buy_slippage_limit, l1.market_buy_slippage_limit);
+    assert_eq!(decoded.market_sell_slippage_limit, l1.market_sell_slippage_limit);
+    assert_eq!(decoded, l1);
+}
+
+#[test]
+fn serialize_and_deserialize_l1_with_none_values() {
+    // Test with all None values
+    let l1 = L1 {
+        lmp: None,
+        bid_head: None,
+        ask_head: None,
+        limit_buy_slippage_limit: None,
+        limit_sell_slippage_limit: None,
+        market_buy_slippage_limit: None,
+        market_sell_slippage_limit: None,
+    };
+
+    // Serialize to binary format
+    let encoded = postcard::to_allocvec(&l1).expect("serialize L1");
+    
+    // Deserialize from binary format
+    let decoded: L1 = postcard::from_bytes(&encoded).expect("deserialize L1");
+    
+    // Verify all fields match
+    assert_eq!(decoded, l1);
+    assert_eq!(decoded.lmp, None);
+    assert_eq!(decoded.bid_head, None);
+    assert_eq!(decoded.ask_head, None);
+}
+
+#[test]
+fn serialize_and_deserialize_l1_default() {
+    // Test with default values
+    let l1 = L1::default();
+
+    // Serialize to binary format
+    let encoded = postcard::to_allocvec(&l1).expect("serialize L1");
+    
+    // Deserialize from binary format
+    let decoded: L1 = postcard::from_bytes(&encoded).expect("deserialize L1");
+    
+    // Verify all fields match
+    assert_eq!(decoded, l1);
+    assert_eq!(decoded.limit_buy_slippage_limit, Some(10000u64));
+    assert_eq!(decoded.limit_sell_slippage_limit, Some(10000u64));
+    assert_eq!(decoded.market_buy_slippage_limit, Some(10000u64));
+    assert_eq!(decoded.market_sell_slippage_limit, Some(10000u64));
+}

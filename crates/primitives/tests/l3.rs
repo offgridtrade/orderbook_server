@@ -311,8 +311,8 @@ fn decrease_order_multiple_decreases_updates_pq_correctly() {
 #[test]
 fn serialize_and_deserialize_storage() {
     let storage = setup_orders();
-    let encoded = bincode::serialize(&storage).expect("serialize storage");
-    let decoded: L3 = bincode::deserialize(&encoded).expect("deserialize storage");
+    let encoded = postcard::to_allocvec(&storage).expect("serialize storage");
+    let decoded: L3 = postcard::from_bytes(&encoded).expect("deserialize storage");
 
     assert_eq!(
         decoded.get_order_ids(100, 3),
@@ -323,8 +323,8 @@ fn serialize_and_deserialize_storage() {
 #[test]
 fn serialize_and_deserialize_order() {
     let order = sample_order();
-    let encoded = bincode::serialize(&order).expect("serialize order");
-    let decoded: Order = bincode::deserialize(&encoded).expect("deserialize order");
+    let encoded = postcard::to_allocvec(&order).expect("serialize order");
+    let decoded: Order = postcard::from_bytes(&encoded).expect("deserialize order");
     assert_eq!(decoded, order);
 }
 

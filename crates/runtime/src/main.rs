@@ -1,9 +1,10 @@
-use offgrid_primitives::orderbook::OrderBook;
+use offgrid_primitives::matching_engine::MatchingEngine;
 use offgrid_primitives::event::{self, Event};
-use offgrid_runtime::{version, network as network_module, jobs, metrics};
+use offgrid_runtime::{version, network as network_module, metrics, snapshot};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use zmq::Context;
@@ -25,8 +26,24 @@ fn main() -> anyhow::Result<()> {
     let zmq_server = Arc::new(network_module::ZmqServer::new(&context, event_port, order_port)?);
     println!("ZMQ server initialized - Events: {}, Orders: {}", event_port, order_port);
 
-    // Create orderbook (shared across threads)
-    let orderbook = Arc::new(std::sync::Mutex::new(OrderBook::new()));
+    // Load matching engine from snapshot or create new
+    let snapshot_path = std::env::var("SNAPSHOT_PATH")
+        .unwrap_or_else(|_| "./data/snapshot.bin".to_string());
+    
+    println!("Loading matching engine from snapshot: {}", snapshot_path);
+    let engine = match snapshot::load_snapshot_or_new(&snapshot_path) {
+        Ok(engine) => {
+            println!("Matching engine loaded: {} pairs", engine.pair_count());
+            engine
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to load snapshot ({}), starting with empty engine", e);
+            MatchingEngine::new()
+        }
+    };
+    
+    // Create matching engine (shared across threads)
+    let matching_engine = Arc::new(Mutex::new(engine));
 
     // Channel for events from order processing to event streaming thread
     let (event_tx, event_rx) = mpsc::channel::<Vec<u8>>();
@@ -53,11 +70,17 @@ fn main() -> anyhow::Result<()> {
             
             match zmq_event_receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(event) => {
-                    // Serialize event and send via ZMQ
-                    // TODO: Use proper serialization (bincode, prost, etc.)
-                    let event_data = format!("{:?}", event).into_bytes();
-                    if let Err(e) = zmq_server_event_backend.publish_event(&event_data) {
-                        eprintln!("Error publishing event to ZMQ: {}", e);
+                    // Serialize event as JSON and send via ZMQ
+                    // serde_bytes will automatically encode Vec<u8> as base64 strings in JSON
+                    match serde_json::to_vec(&event) {
+                        Ok(event_data) => {
+                            if let Err(e) = zmq_server_event_backend.publish_event(&event_data) {
+                                eprintln!("Error publishing event to ZMQ: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error serializing event to JSON: {}", e);
+                        }
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -146,11 +169,25 @@ fn main() -> anyhow::Result<()> {
         shutdown_flag.clone(),
     );
 
-    // Spawn cron jobs thread
-    let cron_thread = jobs::spawn_cron_thread(
-        orderbook.clone(),
+    // Spawn snapshot thread (saves state periodically)
+    let snapshot_interval = std::env::var("SNAPSHOT_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60); // Default: 60 seconds
+    
+    let snapshot_thread = snapshot::spawn_snapshot_thread(
+        matching_engine.clone(),
+        snapshot_path.clone(),
+        snapshot_interval,
         shutdown_flag.clone(),
     );
+
+    // Spawn cron jobs thread
+    // TODO: Update to use matching_engine instead of orderbook
+    // let cron_thread = jobs::spawn_cron_thread(
+    //     matching_engine.clone(),
+    //     shutdown_flag.clone(),
+    // );
 
     // Spawn Prometheus metrics HTTP server thread
     let metrics_thread = metrics::spawn_metrics_thread(
@@ -165,7 +202,6 @@ fn main() -> anyhow::Result<()> {
     
     // Get reference to the router socket from zmq_server
     let order_router = zmq_server.order_router();
-    let orderbook_main = orderbook.clone();
     
     // Set up signal handler for graceful shutdown
     let shutdown_main = shutdown_flag.clone();
@@ -192,11 +228,11 @@ fn main() -> anyhow::Result<()> {
                     // Process order
                     let order_data = msg.to_vec();
                     
-                    // TODO: Parse order message and process through orderbook
+                    // TODO: Parse order message and process through matching engine
                     // Example:
                     // let order_result = {
-                    //     let mut ob = orderbook_main.lock().unwrap();
-                    //     ob.place_bid(...)?;
+                    //     let mut engine = matching_engine_main.lock().unwrap();
+                    //     engine.limit_buy(...)?;
                     // };
                     
                     // Send event to event streaming thread
@@ -219,7 +255,8 @@ fn main() -> anyhow::Result<()> {
     let _ = zmq_event_backend_thread.join();
     let _ = metrics_event_backend_thread.join();
     let _ = logging_event_backend_thread.join();
-    let _ = cron_thread.join();
+    // let _ = cron_thread.join();
+    let _ = snapshot_thread.join();
     let _ = metrics_thread.join();
 
     println!("Orderbook Server shutdown complete");

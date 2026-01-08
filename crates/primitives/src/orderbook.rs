@@ -377,6 +377,7 @@ impl OrderBook {
     /// - `owner` is the owner of the order.
     pub fn cancel_order(
         &mut self,
+        cid: impl Into<Vec<u8>>,
         is_bid: bool,
         order_id: u32,
         owner: impl Into<Vec<u8>>,
