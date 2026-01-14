@@ -9,6 +9,7 @@ use std::time::Duration;
 /// Prometheus metrics registry
 pub struct Metrics {
     pub registry: Registry,
+    pub transfers_total: prometheus::IntCounter,
     pub orders_placed: prometheus::IntCounter,
     pub orders_matched: prometheus::IntCounter,
     pub orders_cancelled: prometheus::IntCounter,
@@ -26,6 +27,10 @@ impl Metrics {
         let registry = Registry::new();
 
         // Define metrics
+        let transfers_total = prometheus::IntCounter::new(
+            "orderbook_transfers_total",
+            "Total number of transfers",
+        )?;
         let orders_placed = prometheus::IntCounter::new(
             "orderbook_orders_placed_total",
             "Total number of orders placed",
@@ -71,6 +76,7 @@ impl Metrics {
         )?;
 
         // Register metrics
+        registry.register(Box::new(transfers_total.clone()))?;
         registry.register(Box::new(orders_placed.clone()))?;
         registry.register(Box::new(orders_matched.clone()))?;
         registry.register(Box::new(orders_cancelled.clone()))?;
@@ -84,6 +90,7 @@ impl Metrics {
 
         Ok(Self {
             registry,
+            transfers_total,
             orders_placed,
             orders_matched,
             orders_cancelled,

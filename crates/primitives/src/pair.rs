@@ -478,5 +478,13 @@ impl Pair {
             .execute(true, order_id, matched, false, taker_fee_bps)
     }
 
-    
+    pub fn cancel_order(
+        &mut self,
+        cid: impl Into<Vec<u8>>,
+        is_bid: bool,
+        order_id: u32,
+        owner: impl Into<Vec<u8>>,
+    ) -> Result<(), OrderBookError> {
+        self.orderbook.cancel_order(cid, is_bid, order_id, owner)
+    }
 }

@@ -1,10 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Level {
     pub price: u64,
     pub quantity: u128,
+}
+
+impl fmt::Display for Level {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Level(price: {}, quantity: {})", self.price, self.quantity)
+    }
+}
+
+// Helper to format Vec<Level> for error messages
+fn format_levels(levels: &[Level]) -> String {
+    if levels.is_empty() {
+        return "[]".to_string();
+    }
+    let formatted: Vec<String> = levels.iter()
+        .map(|level| format!("{}", level))
+        .collect();
+    format!("[{}]", formatted.join(", "))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -47,6 +65,14 @@ pub enum L2Error {
     PriceIsZero,
     #[error("price is missing in L2 orderbook level: {price} isBid: {is_bid} isPlaced: {is_placed}")]
     PriceMissing { price: u64, is_bid: bool, is_placed: bool },
+    #[error("failed to set bid level: {price} {level}")]
+    FailedToSetBidLevel { price: u64, level: u64 },
+    #[error("failed to set ask level: {price} {level}")]
+    FailedToSetAskLevel { price: u64, level: u64 },
+    #[error("failed to set bid levels: scale={scale}, levels={}", format_levels(&levels))]
+    FailedToSetBidLevels { scale: u64, levels: Vec<Level> },
+    #[error("failed to set ask levels: scale={scale}, levels={}", format_levels(&levels))]
+    FailedToSetAskLevels { scale: u64, levels: Vec<Level> },
 }
 
 impl L2 {
@@ -107,20 +133,24 @@ impl L2 {
         levels.iter().take(n as usize).cloned().collect()
     }
 
-    pub fn set_bid_level(&mut self, price: u64, level: u64) {
+    pub fn set_bid_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
         self.bid_level_map.insert(price, level);
+        Ok(())
     }
 
-    pub fn set_ask_level(&mut self, price: u64, level: u64) {
+    pub fn set_ask_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
         self.ask_level_map.insert(price, level);
+        Ok(())
     }
 
-    pub fn set_bid_levels(&mut self, scale: u64, levels: Vec<Level>) {
+    pub fn set_bid_levels(&mut self, scale: u64, levels: Vec<Level>) -> Result<(), L2Error> {
         self.bid_level_list.insert(scale, levels);
+        Ok(())
     }
 
-    pub fn set_ask_levels(&mut self, scale: u64, levels: Vec<Level>) {
+    pub fn set_ask_levels(&mut self, scale: u64, levels: Vec<Level>) -> Result<(), L2Error> {
         self.ask_level_list.insert(scale, levels);
+        Ok(())
     }
 
     pub fn clear_head(&mut self, is_bid: bool) -> Result<Option<u64>, L2Error> {
@@ -155,12 +185,23 @@ impl L2 {
         }
     }
 
-    pub fn insert_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
+    pub fn price_exists(&self, is_bid: bool, price: u64) -> bool {
         if is_bid {
-            self._insert_bid_price(price)
+            self.bid_price_nodes.contains_key(&price)
         }
         else {
-            self._insert_ask_price(price)
+            self.ask_price_nodes.contains_key(&price)
+        }
+    }
+
+    pub fn insert_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
+        if is_bid {
+            self._insert_bid_price(price);
+            self.set_bid_level(price, 0)
+        }
+        else {
+            self._insert_ask_price(price);
+            self.set_ask_level(price, 0)
         }
     }
 
@@ -325,10 +366,16 @@ impl L2 {
     // remove price from the price linked list
     pub fn remove_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
         if is_bid {
-            self._remove_bid_price(price)
+            self._remove_bid_price(price)?;
+            // remove the level from the level map
+            self.bid_level_map.remove(&price);
+            Ok(())
         }
         else {
-            self._remove_ask_price(price)
+            self._remove_ask_price(price)?;
+            // remove the level from the level map
+            self.ask_level_map.remove(&price);
+            Ok(())
         }
     }
     // remove price from the bid price linked list

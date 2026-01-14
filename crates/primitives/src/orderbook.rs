@@ -153,6 +153,14 @@ impl OrderBook {
         let owner = owner.into();
         let price = price;
         let amount = amount;
+
+        // insert price if the price does not exist
+        if !self.l2.price_exists(true, price) {
+            self.l2.insert_price(true, price)?;
+            // Initialize level to 0 for new price
+            self.l2.set_bid_level(price, 0)?;
+        }
+
         let (id, found_dormant) = self.l3.create_order(
             cid,
             owner,
@@ -191,6 +199,14 @@ impl OrderBook {
         let owner = owner.into();
         let price = price.into();
         let amount = amount.into();
+
+        // insert price if the price does not exist
+        if !self.l2.price_exists(false, price) {
+            self.l2.insert_price(false, price)?;
+            // Initialize level to 0 for new price
+            self.l2.set_ask_level(price, 0)?;
+        }
+
         let (id, found_dormant) = self.l3.create_order(
             cid,
             owner,
@@ -318,9 +334,9 @@ impl OrderBook {
             let new_level = current_level.saturating_add(amount);
 
             if is_bid {
-                self.l2.set_bid_level(price, new_level);
+                self.l2.set_bid_level(price, new_level)?;
             } else {
-                self.l2.set_ask_level(price, new_level);
+                self.l2.set_ask_level(price, new_level)?;
             }
             Ok(())
         } else {
@@ -339,10 +355,10 @@ impl OrderBook {
             // Update the level
             if is_bid {
                 if new_level > 0 {
-                    self.l2.set_bid_level(price, new_level);
+                    self.l2.set_bid_level(price, new_level)?;
                 } else {
                     // Level is 0 or below, remove the price
-                    self.l2.set_bid_level(price, 0);
+                    self.l2.set_bid_level(price, 0)?;
                     // Check if price level is empty in L3, and if so, remove it
                     if self.l3.is_empty(price) {
                         self.l2.remove_price(is_bid, price)?;
@@ -350,10 +366,10 @@ impl OrderBook {
                 }
             } else {
                 if new_level > 0 {
-                    self.l2.set_ask_level(price, new_level);
+                    self.l2.set_ask_level(price, new_level)?;
                 } else {
                     // Level is 0 or below, remove the price
-                    self.l2.set_ask_level(price, 0);
+                    self.l2.set_ask_level(price, 0)?;
                     // Check if price level is empty in L3, and if so, remove it
                     if self.l3.is_empty(price) {
                         self.l2.remove_price(is_bid, price)?;
@@ -391,7 +407,7 @@ impl OrderBook {
         }
         let delete_price = self.l3.delete_order(order_id)?;
         // if delete price is some, delete the price level
-        if delete_price.is_some() {
+        if delete_price.is_some() && self.l2.price_exists(is_bid, delete_price.unwrap()) {
             self.l2.remove_price(is_bid, delete_price.unwrap())?;
         }
         Ok(())

@@ -118,6 +118,7 @@ fn main() -> anyhow::Result<()> {
                         Event::OrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
                         Event::OrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
                         Event::OrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
+                        Event::Transfer { .. } => {}
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {

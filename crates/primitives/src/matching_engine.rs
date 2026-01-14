@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::event::{self, EventQueue};
 use crate::orderbook::{OrderBookError, OrderMatch};
 use crate::pair::Pair;
 use crate::time_in_force::TimeInForce;
@@ -28,9 +29,10 @@ impl MatchingEngine {
     /// Place a limit sell order (ask order)
     /// Matches against existing orders first, then places remaining in orderbook based on time_in_force
     ///
-    /// Returns `(order_id, found_dormant)` where:
+    /// Returns `((order_id, found_dormant), events)` where:
     /// - `order_id`: The order ID of the placed order
     /// - `found_dormant`: Whether a dormant order was found and reused
+    /// - `events`: Vector of events emitted during this operation
     pub fn limit_sell(
         &mut self,
         cid: impl Into<Vec<u8>>,
@@ -45,10 +47,10 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<((u32, bool), EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.limit_sell(
+        let result = pair.limit_sell(
             cid,
             existing_order_id,
             owner,
@@ -60,15 +62,21 @@ impl MatchingEngine {
             maker_fee_bps,
             taker_fee_bps,
             time_in_force,
-        )
+        )?;
+        
+        // Drain all events that were emitted during this operation
+        let events = event::drain_events();
+        
+        Ok((result, events))
     }
 
     /// Place a limit buy order (bid order)
     /// Matches against existing orders first, then places remaining in orderbook based on time_in_force
     ///
-    /// Returns `(order_id, found_dormant)` where:
+    /// Returns `((order_id, found_dormant), events)` where:
     /// - `order_id`: The order ID of the placed order
     /// - `found_dormant`: Whether a dormant order was found and reused
+    /// - `events`: Vector of events emitted during this operation
     pub fn limit_buy(
         &mut self,
         cid: impl Into<Vec<u8>>,
@@ -83,10 +91,10 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<((u32, bool), EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.limit_buy(
+        let result = pair.limit_buy(
             cid,
             existing_order_id,
             owner,
@@ -98,13 +106,20 @@ impl MatchingEngine {
             maker_fee_bps,
             taker_fee_bps,
             time_in_force,
-        )
+        )?;
+        
+        // Drain all events that were emitted during this operation
+        let events = event::drain_events();
+        
+        Ok((result, events))
     }
 
     /// Execute a market sell order
     /// Matches against existing orders first (market orders match at any price)
     ///
-    /// Returns `OrderMatch` containing trade execution details
+    /// Returns `(OrderMatch, events)` where:
+    /// - `OrderMatch`: Contains trade execution details
+    /// - `events`: Vector of events emitted during this operation
     pub fn market_sell(
         &mut self,
         cid: impl Into<Vec<u8>>,
@@ -118,9 +133,9 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<OrderMatch, OrderBookError> {
+    ) -> Result<(OrderMatch, EventQueue), OrderBookError> {
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.market_sell(
+        let result = pair.market_sell(
             cid,
             existing_order_id,
             owner,
@@ -131,13 +146,20 @@ impl MatchingEngine {
             maker_fee_bps,
             taker_fee_bps,
             time_in_force,
-        )
+        )?;
+        
+        // Drain all events that were emitted during this operation
+        let events = event::drain_events();
+        
+        Ok((result, events))
     }
 
     /// Execute a market buy order
     /// Matches against existing orders first (market orders match at any price)
     ///
-    /// Returns `OrderMatch` containing trade execution details
+    /// Returns `(OrderMatch, events)` where:
+    /// - `OrderMatch`: Contains trade execution details
+    /// - `events`: Vector of events emitted during this operation
     pub fn market_buy(
         &mut self,
         cid: impl Into<Vec<u8>>,
@@ -151,9 +173,9 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<OrderMatch, OrderBookError> {
+    ) -> Result<(OrderMatch, EventQueue), OrderBookError> {
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.market_buy(
+        let result = pair.market_buy(
             cid,
             existing_order_id,
             owner,
@@ -164,10 +186,17 @@ impl MatchingEngine {
             maker_fee_bps,
             taker_fee_bps,
             time_in_force,
-        )
+        )?;
+        
+        // Drain all events that were emitted during this operation
+        let events = event::drain_events();
+        
+        Ok((result, events))
     }
 
     /// Cancel an order
+    ///
+    /// Returns `events` - Vector of events emitted during this operation
     ///
     /// - `order_id`: The ID of the order to cancel
     /// - `owner`: The owner of the order (for authorization)
@@ -179,9 +208,14 @@ impl MatchingEngine {
         order_id: u32,
         owner: impl Into<Vec<u8>>,
         is_bid: bool,
-    ) -> Result<(), OrderBookError> {
+    ) -> Result<EventQueue, OrderBookError> {
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.orderbook.cancel_order(cid, is_bid, order_id, owner)
+        pair.orderbook.cancel_order(cid, is_bid, order_id, owner)?;
+        
+        // Drain all events that were emitted during this operation
+        let events = event::drain_events();
+        
+        Ok(events)
     }
 
     /// Get the number of pairs in the matching engine
