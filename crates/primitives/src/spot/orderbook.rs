@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{market::L1Error, orders::L3Error, prices::L2Error, L1, L2, L3};
+use super::{market::L1Error, orders::L3Error, prices::L2Error, L1, L2, L3};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 

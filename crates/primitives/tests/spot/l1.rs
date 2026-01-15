@@ -1,4 +1,4 @@
-use offgrid_primitives::market::L1;
+use offgrid_primitives::spot::market::L1;
 
 #[test]
 fn updates_fields() {

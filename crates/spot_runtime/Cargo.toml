@@ -1,5 +1,5 @@
 [package]
-name = "offgrid-runtime"
+name = "offgrid-spot-runtime"
 version = "0.1.0"
 edition = "2024"
 

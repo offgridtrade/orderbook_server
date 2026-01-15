@@ -1,5 +1,5 @@
-use offgrid_primitives::matching_engine::MatchingEngine;
-use offgrid_primitives::event::{self, Event};
+use offgrid_primitives::spot::MatchingEngine;
+use offgrid_primitives::spot::event::{self, Event};
 use offgrid_runtime::{version, network as network_module, metrics, snapshot};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

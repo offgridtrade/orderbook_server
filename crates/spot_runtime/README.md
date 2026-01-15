@@ -1,4 +1,4 @@
-# Offgrid Runtime
+# Offgrid Spot Runtime
 
 Offgrid Runtime is the in-memory application layer for the Offgrid protocol. It handles business logic from Offgrid team's onchain applications, including:
 
@@ -36,10 +36,10 @@ Offgrid Runtime is the in-memory application layer for the Offgrid protocol. It 
 
 ```bash
 # Build the runtime in release mode
-cargo build --release -p offgrid-runtime
+cargo build --release -p offgrid-spot-runtime
 
 # Or build from the runtime directory
-cd crates/runtime
+cd crates/spot_runtime
 cargo build --release
 ```
 
@@ -47,7 +47,7 @@ cargo build --release
 
 The compiled binary will be located at:
 ```
-target/release/offgrid-runtime
+target/release/offgrid-spot-runtime
 ```
 
 ## Configuration
@@ -86,10 +86,10 @@ export SNAPSHOT_INTERVAL_SECONDS=60
 
 ```bash
 # Run from workspace root
-cargo run --release -p offgrid-runtime
+cargo run --release -p offgrid-spot-runtime
 
 # Or run from runtime directory
-cd crates/runtime
+cd crates/spot_runtime
 cargo run --release
 ```
 
@@ -101,17 +101,17 @@ ORDER_PORT=5556 \
 METRICS_PORT=9090 \
 SNAPSHOT_PATH=./data/snapshot.bin \
 SNAPSHOT_INTERVAL_SECONDS=60 \
-cargo run --release -p offgrid-runtime
+cargo run --release -p offgrid-spot-runtime
 ```
 
 ### Production Deployment
 
 ```bash
 # Build release binary
-cargo build --release -p offgrid-runtime
+cargo build --release -p offgrid-spot-runtime
 
 # Run the binary
-./target/release/offgrid-runtime
+./target/release/offgrid-spot-runtime
 ```
 
 ## Architecture

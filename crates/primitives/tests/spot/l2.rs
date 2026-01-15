@@ -1,4 +1,4 @@
-use offgrid_primitives::prices::{L2, PriceNode, Level};
+use offgrid_primitives::spot::prices::{L2, PriceNode, Level};
 use std::collections::BTreeMap;
 
 // price linked list tests

@@ -6,7 +6,7 @@ use std::fmt;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Event {
+pub enum SpotEvent {
     Transfer {
         /// client id 
         #[serde(with = "serde_bytes")]
@@ -25,7 +25,7 @@ pub enum Event {
         /// timestamp
         timestamp: i64,
     },
-    OrderPlaced { 
+    SpotOrderPlaced { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -47,7 +47,7 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderMatched { 
+    SpotOrderMatched { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -72,7 +72,7 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderCancelled { 
+    SpotOrderCanceled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -94,7 +94,7 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderExpired { 
+    SpotOrderCancelled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -116,7 +116,7 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderFilled { 
+    SpotOrderExpired { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -138,7 +138,7 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderPartiallyFilled { 
+    SpotOrderFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -160,7 +160,29 @@ pub enum Event {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    OrderFullyFilled { 
+    SpotOrderPartiallyFilled { 
+        /// client id
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        /// order id
+        order_id: u64, 
+        /// maker account id
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        /// is bid
+        is_bid: bool, 
+        /// price
+        price: u64, 
+        /// iceberg quantity
+        iqty: u64, 
+        /// current quantity
+        cqty: u64, 
+        /// timestamp, i64 is chosen because of js type compatibility
+        timestamp: i64, 
+        /// expires at timestamp, i64 is chosen because of js type compatibility
+        expires_at: i64 
+    },
+    SpotOrderFullyFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,

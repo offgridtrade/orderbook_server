@@ -1,4 +1,4 @@
-use offgrid_primitives::orderbook::OrderBook;
+use offgrid_primitives::spot::orderbook::OrderBook;
 
 #[test]
 fn serialize_and_deserialize_empty_orderbook() {

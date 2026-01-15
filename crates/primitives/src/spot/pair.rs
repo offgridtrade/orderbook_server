@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::event::{self, Event};
-use crate::orderbook::{OrderBook, OrderBookError, OrderMatch};
-use crate::time_in_force::TimeInForce;
+use super::event::{self, Event};
+use super::orderbook::{OrderBook, OrderBookError, OrderMatch};
+use super::time_in_force::TimeInForce;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Pair {

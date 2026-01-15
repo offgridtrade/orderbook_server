@@ -1,4 +1,4 @@
-use offgrid_primitives::orderbook::OrderBook;
+use offgrid_primitives::spot::orderbook::OrderBook;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;

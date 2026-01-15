@@ -1,4 +1,4 @@
-use offgrid_primitives::{orders::{L3, Order, L3Error, Node}};
+use offgrid_primitives::spot::orders::{L3, Order, L3Error, Node};
 use std::collections::HashMap;
 
 fn setup_orders() -> L3 {
@@ -476,4 +476,3 @@ fn pop_front_removes_last_order_and_clears_price_level() {
     assert_eq!(storage.price_head.get(&100), None);
     assert_eq!(storage.price_tail.get(&100), None);
 }
-

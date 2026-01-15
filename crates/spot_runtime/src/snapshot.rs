@@ -1,4 +1,4 @@
-use offgrid_primitives::matching_engine::MatchingEngine;
+use offgrid_primitives::spot::MatchingEngine;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;

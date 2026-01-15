@@ -5,4 +5,4 @@ resolver = "3"
 
 [workspace.dependencies]
 offgrid-primitives = { version = "0.0.0", path = "crates/primitives", default-features = false }
-offgrid-runtime = { version = "0.0.0", path = "crates/runtime", default-features = false }
+offgrid-spot-runtime = { version = "0.0.0", path = "crates/spot_runtime", default-features = false }
