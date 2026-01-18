@@ -1,6 +1,6 @@
 use offgrid_primitives::spot::MatchingEngine;
-use offgrid_primitives::spot::event::{self, Event};
-use offgrid_runtime::{version, network as network_module, metrics, snapshot};
+use offgrid_primitives::spot::event::{self, SpotEvent};
+use offgrid_spot_runtime::{version, network as network_module, metrics, snapshot};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -111,14 +111,17 @@ fn main() -> anyhow::Result<()> {
             match metrics_event_receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(event) => {
                     match event.clone() {
-                        Event::OrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
-                        Event::OrderMatched { .. } => metrics_registry_for_events.orders_matched.inc(),
-                        Event::OrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
-                        Event::OrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
-                        Event::OrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
-                        Event::OrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
-                        Event::OrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
-                        Event::Transfer { .. } => {}
+                        SpotEvent::SpotOrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
+                        SpotEvent::SpotOrderMatched { .. } => metrics_registry_for_events.orders_matched.inc(),
+                        SpotEvent::SpotOrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
+                        SpotEvent::SpotOrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
+                        SpotEvent::SpotOrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
+                        SpotEvent::SpotOrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
+                        SpotEvent::SpotOrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
+                        SpotEvent::Transfer { .. } => {}
+                        SpotEvent::SpotOrderBlockChanged { .. } => {}
+                        SpotEvent::SpotOrderPartiallyMatched { .. } => {}
+                        SpotEvent::SpotOrderFullyMatched { .. } => {}
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {

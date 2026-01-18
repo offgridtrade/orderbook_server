@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::event::{self, Event};
+use super::event::{self, SpotEvent};
 use super::orderbook::{OrderBook, OrderBookError, OrderMatch};
 use super::time_in_force::TimeInForce;
 
@@ -71,7 +71,7 @@ impl Pair {
             // Emit OrderMatched event
             let maker_order = self.orderbook.l3.get_order(maker_order_id).ok();
             if let Some(maker) = maker_order {
-                event::emit_event(Event::OrderMatched {
+                event::emit_event(SpotEvent::SpotOrderMatched {
                     cid: maker.cid.clone(),
                     order_id: maker_order_id as u64,
                     maker_account_id: maker.owner.clone(), // Vec<u8>
@@ -340,7 +340,7 @@ impl Pair {
         // Emit OrderPlaced event
         let order_info = self.orderbook.l3.get_order(order_id);
         if let Ok(order) = order_info {
-            event::emit_event(Event::OrderPlaced {
+            event::emit_event(SpotEvent::SpotOrderPlaced {
                 cid: cid_vec.clone(),
                 order_id: order_id as u64,
                 maker_account_id: order.owner.clone(), // Vec<u8>

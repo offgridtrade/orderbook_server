@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpotEvent {
+    /// Transfer event from an account to another account
     Transfer {
         /// client id 
         #[serde(with = "serde_bytes")]
@@ -25,6 +26,24 @@ pub enum SpotEvent {
         /// timestamp
         timestamp: i64,
     },
+    /// Spot order block changed in the orderbook
+    SpotOrderBlockChanged {
+        /// client id
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        /// pair id
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
+        /// is bid
+        is_bid: bool,
+        /// price
+        price: u64,
+        /// amount
+        amount: u64,
+        /// timestamp
+        timestamp: i64,
+    },
+    /// Spot order placed in the orderbook being a maker
     SpotOrderPlaced { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -47,6 +66,7 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order matched in the orderbook being a taker
     SpotOrderMatched { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -72,15 +92,19 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    SpotOrderCanceled { 
+    /// Spot order partially matched in the orderbook being a taker
+    SpotOrderPartiallyMatched { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        order_id: u64,
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
+        /// taker account id
+        #[serde(with = "serde_bytes")]
+        taker_account_id: Vec<u8>, 
         /// is bid
         is_bid: bool, 
         /// price
@@ -94,6 +118,33 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order fully matched in the orderbook being a taker
+    SpotOrderFullyMatched { 
+        /// client id
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        /// order id
+        order_id: u64,
+        /// maker account id
+        #[serde(with = "serde_bytes")]
+        maker_account_id: Vec<u8>, 
+        /// taker account id
+        #[serde(with = "serde_bytes")]
+        taker_account_id: Vec<u8>, 
+        /// is bid
+        is_bid: bool, 
+        /// price
+        price: u64, 
+        /// iceberg quantity
+        iqty: u64, 
+        /// current quantity
+        cqty: u64, 
+        /// timestamp, i64 is chosen because of js type compatibility
+        timestamp: i64, 
+        /// expires at timestamp, i64 is chosen because of js type compatibility
+        expires_at: i64 
+    },
+    /// Spot order cancelled in the orderbook regardless of being a maker or taker
     SpotOrderCancelled { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -116,6 +167,7 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order expired in the orderbook regardless of being a maker
     SpotOrderExpired { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -138,6 +190,7 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order filled in the orderbook regardless of being a maker
     SpotOrderFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -160,6 +213,7 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order partially filled in the orderbook being a maker
     SpotOrderPartiallyFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -182,6 +236,7 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
+    /// Spot order fully filled in the orderbook being a maker
     SpotOrderFullyFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
@@ -207,10 +262,10 @@ pub enum SpotEvent {
 }
 
 /// A queue of events that can be formatted and displayed.
-/// This is a newtype wrapper around `Vec<Event>` that provides better formatting support.
+/// This is a newtype wrapper around `Vec<SpotEvent>` that provides better formatting support.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct EventQueue(pub Vec<Event>);
+pub struct EventQueue(pub Vec<SpotEvent>);
 
 impl EventQueue {
     /// Create a new empty event queue
@@ -219,17 +274,17 @@ impl EventQueue {
     }
 
     /// Create an event queue from a vector of events
-    pub fn from_vec(events: Vec<Event>) -> Self {
+    pub fn from_vec(events: Vec<SpotEvent>) -> Self {
         EventQueue(events)
     }
 
     /// Get a reference to the underlying vector
-    pub fn as_vec(&self) -> &Vec<Event> {
+    pub fn as_vec(&self) -> &Vec<SpotEvent> {
         &self.0
     }
 
     /// Consume the wrapper and return the underlying vector
-    pub fn into_vec(self) -> Vec<Event> {
+    pub fn into_vec(self) -> Vec<SpotEvent> {
         self.0
     }
 
@@ -250,13 +305,13 @@ impl Default for EventQueue {
     }
 }
 
-impl From<Vec<Event>> for EventQueue {
-    fn from(events: Vec<Event>) -> Self {
+impl From<Vec<SpotEvent>> for EventQueue {
+    fn from(events: Vec<SpotEvent>) -> Self {
         EventQueue(events)
     }
 }
 
-impl From<EventQueue> for Vec<Event> {
+impl From<EventQueue> for Vec<SpotEvent> {
     fn from(queue: EventQueue) -> Self {
         queue.0
     }
@@ -280,7 +335,7 @@ impl fmt::Display for EventQueue {
 }
 
 impl std::ops::Deref for EventQueue {
-    type Target = Vec<Event>;
+    type Target = Vec<SpotEvent>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -294,29 +349,29 @@ impl std::ops::DerefMut for EventQueue {
 }
 
 pub trait EventBackend: Send + 'static {
-    fn handle_event(&mut self, event: Event);
+    fn handle_event(&mut self, event: SpotEvent);
 }
 
 // Sender into the dispatcher
-static DISPATCH_TX: OnceCell<mpsc::Sender<Event>> = OnceCell::new();
+static DISPATCH_TX: OnceCell<mpsc::Sender<SpotEvent>> = OnceCell::new();
 
 // List of per-backend senders
-static BACKEND_TXS: OnceCell<Mutex<Vec<mpsc::Sender<Event>>>> = OnceCell::new();
+static BACKEND_TXS: OnceCell<Mutex<Vec<mpsc::Sender<SpotEvent>>>> = OnceCell::new();
 
 // In-memory event queue that stores events before they are published
-static EVENT_QUEUE: OnceCell<Mutex<Vec<Event>>> = OnceCell::new();
+static EVENT_QUEUE: OnceCell<Mutex<Vec<SpotEvent>>> = OnceCell::new();
 
-fn backend_txs() -> &'static Mutex<Vec<mpsc::Sender<Event>>> {
+fn backend_txs() -> &'static Mutex<Vec<mpsc::Sender<SpotEvent>>> {
     BACKEND_TXS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-fn event_queue() -> &'static Mutex<Vec<Event>> {
+fn event_queue() -> &'static Mutex<Vec<SpotEvent>> {
     EVENT_QUEUE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 /// Call once at process startup to create the dispatcher thread.
 pub fn init_event_bus() {
-    let (tx, rx) = mpsc::channel::<Event>();
+    let (tx, rx) = mpsc::channel::<SpotEvent>();
     DISPATCH_TX.set(tx).ok(); // ignore if already set
 
     // Dispatcher thread: fan out every event to all registered backends.
@@ -334,7 +389,7 @@ pub fn init_event_bus() {
 
 /// Called from anywhere (engine, core logic) to emit an event.
 /// This stores the event in the event queue. Use `publish_events()` to actually send them.
-pub fn emit_event(event: Event) {
+pub fn emit_event(event: SpotEvent) {
     let mut queue = event_queue().lock().unwrap();
     queue.push(event);
 }
@@ -343,7 +398,7 @@ pub fn emit_event(event: Event) {
 /// After publishing, the queue is drained and cleared.
 pub fn publish_events() {
     // Drain all events from the queue
-    let events: Vec<Event> = {
+    let events: Vec<SpotEvent> = {
         let mut queue = event_queue().lock().unwrap();
         let drained = queue.clone();
         queue.clear();
@@ -371,10 +426,10 @@ pub fn publish_event_queue(events: EventQueue) {
     }
 }
 
-/// Register a backend; returns an `mpsc::Receiver<Event>` that you
+/// Register a backend; returns an `mpsc::Receiver<SpotEvent>` that you
 /// can consume from a dedicated thread.
-pub fn register_backend() -> mpsc::Receiver<Event> {
-    let (tx, rx) = mpsc::channel::<Event>();
+pub fn register_backend() -> mpsc::Receiver<SpotEvent> {
+    let (tx, rx) = mpsc::channel::<SpotEvent>();
 
     {
         let mut list = backend_txs().lock().unwrap();

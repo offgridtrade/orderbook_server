@@ -1,6 +1,9 @@
 
 [workspace]
-members = ["crates/*"]
+members = [
+  "crates/primitives",
+  "crates/spot_runtime",
+]
 resolver = "3"
 
 [workspace.dependencies]
