@@ -189,7 +189,7 @@ impl OrderBook {
             timestamp: timestamp,
             expires_at: expires_at,
         });
-        
+
         // update the price level on the orderbook
         self.update_price_level(cid, pair_id, true, true, price, pqty, None)?;
         Ok((id, found_dormant))
@@ -209,8 +209,8 @@ impl OrderBook {
         pair_id: impl Into<Vec<u8>>,
         owner: impl Into<Vec<u8>>,
         price: u64,
-        amount: u64,
-        public_amount: u64,
+        amnt: u64,
+        iqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
@@ -219,21 +219,41 @@ impl OrderBook {
         let pair_id = pair_id.into();
         let owner = owner.into();
         let price = price.into();
-        let amount = amount.into();
+        let amnt = amnt.into();
+        let iqty = iqty.into();
+        if iqty > amnt {
+            return Err(OrderBookError::IcebergQuantityIsBiggerThanWholeAmount);
+        }
+        let pqty = amnt - iqty;
 
         let (id, found_dormant) = self.l3.create_order(
             cid.clone(),
-            owner,
+            owner.clone(),
             price,
-            amount,
-            public_amount,
+            amnt,
+            iqty,
             timestamp,
             expires_at,
             maker_fee_bps,
         )?;
 
+        // emit the event for the order created
+        event::emit_event(SpotEvent::SpotOrderPlaced {
+            cid: cid.clone(),
+            order_id: id as u64,
+            maker_account_id: owner,
+            is_bid: false,
+            price: price,
+            amnt: amnt,
+            iqty: iqty,
+            pqty: pqty,
+            cqty: amnt,
+            timestamp: timestamp,
+            expires_at: expires_at,
+        });
+
         // update the price level on the orderbook
-        self.update_price_level(cid, pair_id, true, false, price, amount, None)?;
+        self.update_price_level(cid, pair_id, true, false, price, amnt, None)?;
         Ok((id, found_dormant))
     }
 
