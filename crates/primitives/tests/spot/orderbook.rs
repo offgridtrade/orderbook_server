@@ -27,6 +27,7 @@ fn serialize_and_deserialize_orderbook_with_orders() {
     // Place some bid orders
     let (bid_order_id_1, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -38,6 +39,7 @@ fn serialize_and_deserialize_orderbook_with_orders() {
     
     let (bid_order_id_2, _) = orderbook.place_bid(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         95,
         2000,
@@ -50,6 +52,7 @@ fn serialize_and_deserialize_orderbook_with_orders() {
     // Place some ask orders
     let (ask_order_id_1, _) = orderbook.place_ask(
         vec![7, 8, 9],
+        vec![0],
         vec![50, 60],
         110,
         1500,
@@ -61,6 +64,7 @@ fn serialize_and_deserialize_orderbook_with_orders() {
     
     let (ask_order_id_2, _) = orderbook.place_ask(
         vec![10, 11, 12],
+        vec![0],
         vec![70, 80],
         115,
         3000,
@@ -116,6 +120,7 @@ fn serialize_and_deserialize_orderbook_after_execution() {
     // Place a bid order
     let (bid_order_id, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -128,6 +133,7 @@ fn serialize_and_deserialize_orderbook_after_execution() {
     // Place an ask order
     let (ask_order_id, _) = orderbook.place_ask(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         100,
         500,
@@ -141,6 +147,7 @@ fn serialize_and_deserialize_orderbook_after_execution() {
     let order_match = orderbook.execute(
         false, // is_bid: false (ask order)
         ask_order_id,
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -214,6 +221,7 @@ fn place_bid_order_and_check_bid_price_level() {
     
     let (bid_order_id, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -243,6 +251,7 @@ fn place_ask_order_and_check_ask_price_level() {
     
     let (ask_order_id, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -270,6 +279,7 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level() {
     
     let (ask_order_id, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -287,6 +297,7 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level() {
     let order_match = orderbook.execute(
         false, // is_bid: false (ask order)
         ask_order_id,
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -314,6 +325,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level() {
     
     let (bid_order_id, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -326,6 +338,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level() {
     
     let (ask_order_id, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -343,6 +356,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level() {
     let order_match = orderbook.execute(
         true, // is_bid: true (bid order)
         bid_order_id,
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -373,6 +387,7 @@ fn place_bid_automatically_inserts_price() {
     // Place bid order without manually inserting price first
     let (bid_order_id, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -421,6 +436,7 @@ fn place_ask_automatically_inserts_price() {
     // Place ask order without manually inserting price first
     let (ask_order_id, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -465,6 +481,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     // Place first bid order
     let (bid_order_id_1, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -482,6 +499,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     // Place second bid order at the same price
     let (bid_order_id_2, _) = orderbook.place_bid(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         100,
         300,
@@ -499,6 +517,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     // Place third bid order at the same price
     let (bid_order_id_3, _) = orderbook.place_bid(
         vec![7, 8, 9],
+        vec![0],
         vec![50, 60],
         100,
         200,
@@ -537,6 +556,7 @@ fn place_ask_accumulates_levels_at_same_price() {
     // Place first ask order
     let (ask_order_id_1, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -554,6 +574,7 @@ fn place_ask_accumulates_levels_at_same_price() {
     // Place second ask order at the same price
     let (ask_order_id_2, _) = orderbook.place_ask(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         100,
         300,
@@ -571,6 +592,7 @@ fn place_ask_accumulates_levels_at_same_price() {
     // Place third ask order at the same price
     let (ask_order_id_3, _) = orderbook.place_ask(
         vec![7, 8, 9],
+        vec![0],
         vec![50, 60],
         100,
         200,
@@ -609,6 +631,7 @@ fn place_bid_handles_multiple_different_prices() {
     // Place bid orders at different prices without manually inserting prices
     let (bid_order_id_1, _) = orderbook.place_bid(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -621,6 +644,7 @@ fn place_bid_handles_multiple_different_prices() {
     
     let (bid_order_id_2, _) = orderbook.place_bid(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         95,
         300,
@@ -633,6 +657,7 @@ fn place_bid_handles_multiple_different_prices() {
     
     let (bid_order_id_3, _) = orderbook.place_bid(
         vec![7, 8, 9],
+        vec![0],
         vec![50, 60],
         105,
         200,
@@ -677,6 +702,7 @@ fn place_ask_handles_multiple_different_prices() {
     // Place ask orders at different prices without manually inserting prices
     let (ask_order_id_1, _) = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -689,6 +715,7 @@ fn place_ask_handles_multiple_different_prices() {
     
     let (ask_order_id_2, _) = orderbook.place_ask(
         vec![4, 5, 6],
+        vec![0],
         vec![30, 40],
         110,
         300,
@@ -701,6 +728,7 @@ fn place_ask_handles_multiple_different_prices() {
     
     let (ask_order_id_3, _) = orderbook.place_ask(
         vec![7, 8, 9],
+        vec![0],
         vec![50, 60],
         95,
         200,

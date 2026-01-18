@@ -7,6 +7,17 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpotEvent {
+    /// Pair added to the matching engine
+    SpotPairAdded {
+        /// client id
+        #[serde(with = "serde_bytes")]
+        cid: Vec<u8>,
+        /// pair id
+        pair_id: String,
+        /// timestamp
+        /// i64 is chosen because of js type compatibility
+        timestamp: i64,
+    },
     /// Transfer event from an account to another account
     Transfer {
         /// client id 
@@ -22,7 +33,7 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         asset: Vec<u8>,
         /// amount
-        amount: u64,
+        amnt: u64,
         /// timestamp
         timestamp: i64,
     },
@@ -39,7 +50,7 @@ pub enum SpotEvent {
         /// price
         price: u64,
         /// amount
-        amount: u64,
+        amnt: u64,
         /// timestamp
         timestamp: i64,
     },
@@ -57,10 +68,14 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
         /// current quantity
         cqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// timestamp, i64 is chosen because of js type compatibility
         timestamp: i64, 
         /// expires at timestamp, i64 is chosen because of js type compatibility
@@ -83,8 +98,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -109,8 +128,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -135,8 +158,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
-        iqty: u64, 
+        iqty: u64,
+        /// public quantity
+        pqty: u64, 
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -158,8 +185,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -181,8 +212,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -203,9 +238,13 @@ pub enum SpotEvent {
         /// is bid
         is_bid: bool, 
         /// price
-        price: u64, 
+        price: u64,
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -227,8 +266,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility
@@ -250,8 +293,12 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// whole amount
+        amnt: u64,
         /// iceberg quantity
         iqty: u64, 
+        /// public quantity
+        pqty: u64,
         /// current quantity
         cqty: u64, 
         /// timestamp, i64 is chosen because of js type compatibility

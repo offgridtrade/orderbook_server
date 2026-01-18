@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+use crate::spot::event::SpotEvent;
+
 /// Represents an order stored in the order book.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Order {
@@ -10,12 +12,14 @@ pub struct Order {
     pub owner: Vec<u8>,
     /// price of the order in 8 decimals
     pub price: u64,
-    /// public liquidity for iceberg orders to protect position in 8 decimals
-    pub pq: u64,
-    /// initial liquidity of the order in 8 decimals
-    pub iq: u64,
-    /// current liquidity of the order in 8 decimals
-    pub cq: u64,
+    /// whole amount of the order in 8 decimals without iceberg protection
+    pub amnt: u64,
+    /// iceberg quantity of the order in 8 decimals to hide the order from the public
+    pub iqty: u64,
+    /// public quantity of the order in 8 decimals with iceberg protection
+    pub pqty: u64,
+    /// current quantity of the order in 8 decimals without iceberg protection
+    pub cqty: u64,
     /// timestamp of the order in milliseconds
     pub timestamp: i64,
     /// expires at timestamp in milliseconds
@@ -30,9 +34,10 @@ impl Order {
         cid: Vec<u8>,
         owner: Vec<u8>,
         price: u64,
-        pq: u64,
-        iq: u64,
-        cq: u64,
+        amnt: u64,
+        iqty: u64,
+        pqty: u64,
+        cqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
@@ -41,9 +46,10 @@ impl Order {
             cid,
             owner,
             price,
-            pq,
-            iq,
-            cq,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
             timestamp,
             expires_at,
             maker_fee_bps,
@@ -65,6 +71,8 @@ pub enum L3Error {
     PriceIsZero,
     #[error("order does not exist: {0}")]
     OrderDoesNotExist(u32),
+    #[error("iceberg quantity is bigger than whole amount")]
+    IcebergQuantityIsBiggerThanWholeAmount,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -178,8 +186,8 @@ impl L3 {
         cid: impl Into<Vec<u8>>,
         owner: impl Into<Vec<u8>>,
         price: u64,
-        iq: u64,
-        pq: u64,
+        amnt: u64,
+        iqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
@@ -187,7 +195,11 @@ impl L3 {
         Self::ensure_price(price)?;
         let cid = cid.into();
         let owner = owner.into();
-        let order = Order::new(cid, owner, price, pq, iq, iq, timestamp, expires_at, maker_fee_bps);
+        if iqty > amnt {
+            return Err(L3Error::IcebergQuantityIsBiggerThanWholeAmount);
+        }
+        let pqty = amnt - iqty;
+        let order = Order::new(cid, owner, price, amnt, iqty, pqty, amnt, timestamp, expires_at, maker_fee_bps);
 
         self.count = if self.count == 0 || self.count == u32::MAX {
             1
@@ -212,6 +224,8 @@ impl L3 {
             next: None,
         });
         self.orders.insert(self.count, order);
+
+       
         Ok((self.count, false))
     }
 
@@ -240,7 +254,7 @@ impl L3 {
                 None => return Ok((0, None)),
             };
 
-            let original = order.cq;
+            let original = order.cqty;
             amount_to_send = amount.min(original);
             let decreased = original.saturating_sub(amount_to_send);
 
@@ -249,10 +263,10 @@ impl L3 {
                 should_delete = true;
             } else {
                 // update the current base quantity of the order
-                order.cq = decreased;
+                order.cqty = decreased;
                 // update the current public quantity of the order
-                // if pq is bigger than cq, keep pq unchanged, otherwise set pq to cq
-                order.pq = if order.pq > order.cq { order.pq } else { order.cq };
+                // if pqty is bigger than cqty, keep pqty unchanged, otherwise set pqty to cqty as it does not need to hide anymore
+                order.pqty = if order.pqty > order.cqty { order.pqty } else { order.cqty };
             }
         }
 
@@ -266,7 +280,7 @@ impl L3 {
 
     /// Deletes an order from the storage, returning the price level if it becomes empty.
     /// - returns the price level if it becomes empty.
-    pub fn delete_order(&mut self, id: u32) -> Result<Option<u64>, L3Error> {
+    pub fn delete_order(&mut self, id: u32) -> Result<(Option<u64>), L3Error> {
         if id == 0 {
             return Err(L3Error::OrderIdIsZero(id));
         }
@@ -307,12 +321,12 @@ impl L3 {
             self.price_head.remove(&price);
             self.price_tail.remove(&price);
             self.order_nodes.remove(&id);
-            return Ok(Some(price));
+            return Ok((Some(price)));
         }
         
         // remove order from the orders map
         self.orders.remove(&id);
-        Ok(None)
+        Ok((None))
     }
 
     /// Returns the next id that would be assigned on order creation.

@@ -6,9 +6,12 @@ use super::time_in_force::TimeInForce;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Pair {
+    /// Pair ID
+    pub pair_id: String,
     /// Orderbook
     pub orderbook: OrderBook,
-   
+    /// list of exchange clients which shares the orderbook 
+    pub clients: Vec<Vec<u8>>,
 }
 
 impl Pair {
@@ -16,7 +19,18 @@ impl Pair {
     pub fn new() -> Self {
         Self {
             orderbook: OrderBook::default(),
+            pair_id: String::new(),
+            clients: Vec::new(),
         }
+    }
+
+    pub fn add_client(&mut self, cid: impl Into<Vec<u8>>) {
+        self.clients.push(cid.into());
+    }
+
+    pub fn remove_client(&mut self, cid: impl Into<Vec<u8>>) {
+        let cid = cid.into();
+        self.clients.retain(|c| *c != cid);
     }
     
     /// Match orders at a specific price level
@@ -288,9 +302,9 @@ impl Pair {
         // price of the order
         price: u64,
         // total amount of the order
-        amount: u64,
-        // public amount of the order in case of iceberg order
-        public_amount: u64,
+        amnt: u64,
+        // iceberg quantity of the order
+        iqty: u64,
         // timestamp of the order
         timestamp: i64,
         // expiring timestamp of the order
@@ -315,7 +329,7 @@ impl Pair {
         // Match against existing orders FIRST (before placing in orderbook)
         let (remaining, _bid_head, _ask_head) = self._limit_order(
             cid_vec.clone(),
-            amount,
+            amnt,
             false, // is_bid = false for sell
             price,
             taker_fee_bps,
@@ -325,19 +339,21 @@ impl Pair {
         // Create the order (but don't insert into orderbook yet)
         let (order_id, found_dormant) = self.orderbook.place_ask(
             cid_vec.clone(),
+            self.pair_id.as_bytes().to_vec(),
             owner_vec.clone(),
             price,
-            amount,
-            public_amount,
+            amnt,
+            iqty,
             timestamp,
             expires_at,
             maker_fee_bps,
         )?;
 
         // Handle time_in_force logic
-        self._handle_time_in_force(order_id, price, amount, remaining, false, time_in_force)?;
+        self._handle_time_in_force(order_id, price, amnt, remaining, false, time_in_force)?;
 
         // Emit OrderPlaced event
+        // TODO: emit the event inside the _handle_time_in_force function
         let order_info = self.orderbook.l3.get_order(order_id);
         if let Ok(order) = order_info {
             event::emit_event(SpotEvent::SpotOrderPlaced {
@@ -346,8 +362,10 @@ impl Pair {
                 maker_account_id: order.owner.clone(), // Vec<u8>
                 is_bid: false, // ask order
                 price: order.price,
-                iqty: order.iq,
-                cqty: order.cq,
+                amnt: order.amnt,
+                iqty: order.iqty,
+                pqty: order.pqty,
+                cqty: order.cqty,
                 timestamp: order.timestamp,
                 expires_at: order.expires_at,
             });
@@ -381,9 +399,9 @@ impl Pair {
         // price of the order
         price: u64,
         // total amount of the order
-        amount: u64,
-        // public amount of the order in case of iceberg order
-        public_amount: u64,
+        amnt: u64,
+        // iceberg quantity of the order
+        iqty: u64,
         // timestamp of the order
         timestamp: i64,
         // expiring timestamp of the order
@@ -418,9 +436,9 @@ impl Pair {
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // total amount of the order
-        amount: u64,
-        // public amount of the order in case of iceberg order
-        public_amount: u64,
+        amnt: u64,
+        // iceberg quantity of the order
+        iqty: u64,
         // timestamp of the order
         timestamp: i64,
         // expiring timestamp of the order
@@ -433,9 +451,16 @@ impl Pair {
         
         let clear = false;
         let order_id = existing_order_id.unwrap_or(0);
-        let matched = amount;
+        let matched = amnt;
         self.orderbook
-            .execute(false, order_id, matched, clear, taker_fee_bps)
+            .execute(
+                false,
+                order_id,
+                self.pair_id.as_bytes().to_vec(),
+                matched,
+                clear,
+                taker_fee_bps,
+            )
     }
 
     /// Execute a market buy order
@@ -456,9 +481,9 @@ impl Pair {
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // total amount of the order
-        amount: u64,
-        // public amount of the order in case of iceberg order
-        public_amount: u64,
+        amnt: u64,
+        // iceberg quantity of the order
+        iqty: u64,
         // timestamp of the order
         timestamp: i64,
         // expiring timestamp of the order
@@ -473,18 +498,27 @@ impl Pair {
 
         let order_id = existing_order_id.unwrap_or(0);
         let clear = false;
-        let matched = amount;
+        let matched = amnt;
         self.orderbook
-            .execute(true, order_id, matched, false, taker_fee_bps)
+            .execute(
+                true,
+                order_id,
+                self.pair_id.as_bytes().to_vec(),
+                matched,
+                false,
+                taker_fee_bps,
+            )
     }
 
     pub fn cancel_order(
         &mut self,
         cid: impl Into<Vec<u8>>,
+        pair_id: impl Into<Vec<u8>>,
         is_bid: bool,
         order_id: u32,
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
-        self.orderbook.cancel_order(cid, is_bid, order_id, owner)
+        self.orderbook
+            .cancel_order(cid, pair_id, is_bid, order_id, owner)
     }
 }

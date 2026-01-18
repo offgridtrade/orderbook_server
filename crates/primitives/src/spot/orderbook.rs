@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::spot::event::{self, SpotEvent};
+
 use super::{market::L1Error, orders::L3Error, prices::L2Error, L1, L2, L3};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -37,6 +39,8 @@ pub enum OrderBookError {
     L2(L2Error),
     #[error("L1 error: {0}")]
     L1(L1Error),
+    #[error("iceberg quantity is bigger than whole amount")]
+    IcebergQuantityIsBiggerThanWholeAmount,
 }
 
 impl From<L3Error> for OrderBookError {
@@ -79,7 +83,7 @@ impl OrderBook {
     /// Gets the required amount of base liquidity to match an order and clear the order.
     pub fn get_required(&self, order_id: u32) -> Result<u64, OrderBookError> {
         let order = self.l3.get_order(order_id)?;
-        Ok(order.cq)
+        Ok(order.cqty)
     }
 
     /// clears empty head of the order book where price is in linked list, but order is not in the price level
@@ -142,38 +146,52 @@ impl OrderBook {
     pub fn place_bid(
         &mut self,
         cid: impl Into<Vec<u8>>,
+        pair_id: impl Into<Vec<u8>>,
         owner: impl Into<Vec<u8>>,
         price: u64,
-        amount: u64,
-        public_amount: u64,
+        amnt: u64,
+        iqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
     ) -> Result<(u32, bool), OrderBookError> {
+        let cid = cid.into();
+        let pair_id = pair_id.into();
         let owner = owner.into();
         let price = price;
-        let amount = amount;
-
-        // insert price if the price does not exist
-        if !self.l2.price_exists(true, price) {
-            self.l2.insert_price(true, price)?;
-            // Initialize level to 0 for new price
-            self.l2.set_bid_level(price, 0)?;
+        if iqty > amnt {
+            return Err(OrderBookError::IcebergQuantityIsBiggerThanWholeAmount);
         }
+        let pqty = amnt - iqty;
 
         let (id, found_dormant) = self.l3.create_order(
-            cid,
-            owner,
+            cid.clone(),
+            owner.clone(),
             price,
-            amount,
-            public_amount,
+            amnt,
+            iqty,
             timestamp,
             expires_at,
             maker_fee_bps,
         )?;
 
+         // emit the event for the order created
+         event::emit_event(SpotEvent::SpotOrderPlaced {
+            cid: cid.clone(),
+            order_id: id as u64,
+            maker_account_id: owner.into(),
+            is_bid: true,
+            price: price,
+            amnt: amnt,
+            iqty: iqty,
+            pqty: pqty,
+            cqty: amnt,
+            timestamp: timestamp,
+            expires_at: expires_at,
+        });
+        
         // update the price level on the orderbook
-        self._update_price_level(true, true, price, amount, None)?;
+        self.update_price_level(cid, pair_id, true, true, price, pqty, None)?;
         Ok((id, found_dormant))
     }
 
@@ -188,6 +206,7 @@ impl OrderBook {
     pub fn place_ask(
         &mut self,
         cid: impl Into<Vec<u8>>,
+        pair_id: impl Into<Vec<u8>>,
         owner: impl Into<Vec<u8>>,
         price: u64,
         amount: u64,
@@ -196,19 +215,14 @@ impl OrderBook {
         expires_at: i64,
         maker_fee_bps: u16,
     ) -> Result<(u32, bool), OrderBookError> {
+        let cid = cid.into();
+        let pair_id = pair_id.into();
         let owner = owner.into();
         let price = price.into();
         let amount = amount.into();
 
-        // insert price if the price does not exist
-        if !self.l2.price_exists(false, price) {
-            self.l2.insert_price(false, price)?;
-            // Initialize level to 0 for new price
-            self.l2.set_ask_level(price, 0)?;
-        }
-
         let (id, found_dormant) = self.l3.create_order(
-            cid,
+            cid.clone(),
             owner,
             price,
             amount,
@@ -219,7 +233,7 @@ impl OrderBook {
         )?;
 
         // update the price level on the orderbook
-        self._update_price_level(true, false, price, amount, None)?;
+        self.update_price_level(cid, pair_id, true, false, price, amount, None)?;
         Ok((id, found_dormant))
     }
 
@@ -236,15 +250,22 @@ impl OrderBook {
         &mut self,
         is_bid: bool,
         order_id: u32,
+        pair_id: impl Into<Vec<u8>>,
         amount: u64,
         clear: bool,
         taker_fee_bps: u16,
     ) -> Result<OrderMatch, OrderBookError> {
         // Get order data before mutable borrow
-        let (order_price, order_owner, maker_fee_bps) = {
+        let (order_price, order_owner, maker_fee_bps, order_cid) = {
             let order = self.l3.get_order(order_id)?;
-            (order.price, order.owner.clone(), order.maker_fee_bps)
+            (
+                order.price,
+                order.owner.clone(),
+                order.maker_fee_bps,
+                order.cid.clone(),
+            )
         };
+        let pair_id = pair_id.into();
 
         let (amount_to_send, delete_price) =
             self.l3.decrease_order(order_id, amount, 1u64, clear)?;
@@ -272,7 +293,15 @@ impl OrderBook {
         // adjust price level on the matched amount
         // Update levels and remove price if level becomes 0 or below
         // Also handle delete_price removal if an order was fully consumed
-        self._update_price_level(false, is_bid, order_price, amount_to_send, delete_price)?;
+        self.update_price_level(
+            order_cid,
+            pair_id,
+            false,
+            is_bid,
+            order_price,
+            amount_to_send,
+            delete_price,
+        )?;
 
         Ok(OrderMatch {
             sender: order_owner.clone(),
@@ -313,15 +342,28 @@ impl OrderBook {
     /// - `amount` is the amount to add to the level when isPlaced is true, or the amount to subtract from the level when isPlaced is false.
     /// - `delete_price` is an optional price that should be removed (when an order was fully consumed).
     /// Removes the price if the level becomes 0 or below.
-    fn _update_price_level(
+    pub fn update_price_level(
         &mut self,
+        cid: Vec<u8>,
+        pair_id: Vec<u8>,
         is_placed: bool,
         is_bid: bool,
         price: u64,
-        amount: u64,
+        amnt: u64,
         delete_price: Option<u64>,
     ) -> Result<(), OrderBookError> {
         if is_placed {
+            // insert price if the price does not exist
+            if !self.l2.price_exists(is_bid, price) {
+                self.l2.insert_price(is_bid, price)?;
+                // Initialize level to 0 for new price
+                if is_bid {
+                    self.l2.set_bid_level(price, 0)?;
+                } else {
+                    self.l2.set_ask_level(price, 0)?;
+                }
+            }
+
             // throw L2 price missing error if price is not found
             let current_level; 
             if is_bid {
@@ -331,13 +373,23 @@ impl OrderBook {
             }
 
             // Calculate new level quantity (add amount)
-            let new_level = current_level.saturating_add(amount);
+            let new_level = current_level.saturating_add(amnt);
 
             if is_bid {
                 self.l2.set_bid_level(price, new_level)?;
             } else {
                 self.l2.set_ask_level(price, new_level)?;
             }
+
+            // emit the event for the price level update on the orderbook
+            event::emit_event(SpotEvent::SpotOrderBlockChanged {
+                cid,
+                pair_id,
+                is_bid,
+                price,
+                amnt: new_level,
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64,
+            });
             Ok(())
         } else {
             // Get current level quantity
@@ -350,7 +402,7 @@ impl OrderBook {
 
             // Calculate new level quantity (subtract amount)
             // Use saturating_sub to prevent underflow, but we still check for 0
-            let new_level = current_level.saturating_sub(amount);
+            let new_level = current_level.saturating_sub(amnt);
 
             // Update the level
             if is_bid {
@@ -383,6 +435,16 @@ impl OrderBook {
                 self.l2.remove_price(is_bid, delete_price)?;
             }
 
+            // emit the event for the price level update on the orderbook
+            event::emit_event(SpotEvent::SpotOrderBlockChanged {
+                cid,
+                pair_id,
+                is_bid,
+                price,
+                amnt: new_level,
+                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64,
+            });
+
             Ok(())
         }
     }
@@ -394,22 +456,42 @@ impl OrderBook {
     pub fn cancel_order(
         &mut self,
         cid: impl Into<Vec<u8>>,
+        pair_id: impl Into<Vec<u8>>,
         is_bid: bool,
         order_id: u32,
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
+        let cid = cid.into();
+        let pair_id = pair_id.into();
         let owner = owner.into();
         // check if the order exists
-        let order = self.l3.get_order(order_id)?;
+        let order = self.l3.get_order(order_id)?.clone();
         // check if the owner is the same as the owner of the order
         if order.owner != owner {
             return Err(OrderBookError::OrderNotOwnedBySender);
         }
-        let delete_price = self.l3.delete_order(order_id)?;
-        // if delete price is some, delete the price level
-        if delete_price.is_some() && self.l2.price_exists(is_bid, delete_price.unwrap()) {
-            self.l2.remove_price(is_bid, delete_price.unwrap())?;
+        let deleted_price_opt = self.l3.delete_order(order_id)?;
+        if let Some(price) = deleted_price_opt {
+            self.l2.remove_price(is_bid, price)?;
         }
+
+        // emit the event for the order cancelled
+        event::emit_event(SpotEvent::SpotOrderCancelled {
+            cid: cid.clone(),
+            order_id: order_id as u64,
+            maker_account_id: order.owner.clone(),
+            is_bid,
+            price: order.price,
+            amnt: order.amnt,
+            iqty: order.iqty,
+            pqty: order.pqty,
+            cqty: order.cqty,
+            timestamp: order.timestamp,
+            expires_at: order.expires_at,
+        });
+
+        // update the price level on the orderbook
+        self.update_price_level(cid, pair_id, false, is_bid, order.price, order.amnt, deleted_price_opt)?;
         Ok(())
     }
 }

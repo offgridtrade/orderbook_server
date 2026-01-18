@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::spot::event::SpotEvent;
+
 use super::event::{self, EventQueue};
 use super::orderbook::{OrderBookError, OrderMatch};
 use super::pair::Pair;
@@ -21,9 +23,34 @@ impl MatchingEngine {
         }
     }
 
-    pub fn add_pair(&mut self, pair_id: impl Into<String>) {
-        self.pairs.insert(pair_id.into(), Pair::new());
-        self.total_pairs += 1;
+    pub fn add_pair(&mut self, cid: impl Into<Vec<u8>>, pair_id: impl Into<Vec<u8>>, timestamp: i64) {
+        // check if the pair already exists
+        let pair_id_vec = pair_id.into();
+        let pair_id_str = String::from_utf8(pair_id_vec.clone()).unwrap();
+        if self.pairs.contains_key(&pair_id_str) {
+            // add the client to the pair
+            let cid_vec = cid.into();
+            self.pairs.get_mut(&pair_id_str).unwrap().add_client(cid_vec.clone());
+            // emit the event
+            event::emit_event(SpotEvent::SpotPairAdded {
+                cid: cid_vec,
+                pair_id: pair_id_str,
+                timestamp: timestamp,
+            });
+            return;
+        }
+
+        // create the pair
+        let mut pair = Pair::new();
+        pair.pair_id = pair_id_str.clone();
+        let cid_vec = cid.into();
+        pair.add_client(cid_vec.clone());
+        // emit the event
+        event::emit_event(SpotEvent::SpotPairAdded {
+            cid: cid_vec,
+            pair_id: pair.pair_id.clone(),
+            timestamp: timestamp,
+        });
     }
 
     /// Place a limit sell order (ask order)
@@ -40,8 +67,10 @@ impl MatchingEngine {
         existing_order_id: Option<u32>,
         owner: impl Into<Vec<u8>>,
         price: u64,
-        amount: u64,
-        public_amount: u64,
+        // whole amount
+        amnt: u64,
+        // iceberg quantity
+        iqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
@@ -55,8 +84,8 @@ impl MatchingEngine {
             existing_order_id,
             owner,
             price,
-            amount,
-            public_amount,
+            amnt,
+            iqty,
             timestamp,
             expires_at,
             maker_fee_bps,
@@ -204,13 +233,15 @@ impl MatchingEngine {
     pub fn cancel_order(
         &mut self,
         cid: impl Into<Vec<u8>>,
-        pair_id: impl Into<String>,
+        pair_id: impl Into<Vec<u8>>,
         order_id: u32,
         owner: impl Into<Vec<u8>>,
         is_bid: bool,
     ) -> Result<EventQueue, OrderBookError> {
-        let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        pair.orderbook.cancel_order(cid, is_bid, order_id, owner)?;
+        let pair_id = pair_id.into();
+        let pair_id_str = String::from_utf8(pair_id.clone()).unwrap();
+        let pair = self.pairs.get_mut(&pair_id_str).unwrap();
+        pair.cancel_order(cid, pair_id, is_bid, order_id, owner)?;
         
         // Drain all events that were emitted during this operation
         let events = event::drain_events();
