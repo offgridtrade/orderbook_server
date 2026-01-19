@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::spot::event::{self, SpotEvent};
+use crate::spot::{Order, event::{self, SpotEvent}};
 
 use super::{
     market::L1Error,
@@ -126,7 +126,7 @@ impl OrderBook {
     }
 
     /// pop front on the orderbook
-    pub fn pop_front(&mut self, is_bid: bool) -> Result<OrderId, OrderBookError> {
+    pub fn pop_front(&mut self, is_bid: bool) -> Result<Order, OrderBookError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -157,11 +157,11 @@ impl OrderBook {
                     continue;
                 }
                 // if the order is not expired, pop it from the orderbook
-                let (order_id, is_empty) = self.l3.pop_front(head_price)?;
+                let (order, is_empty) = self.l3.pop_front(head_price)?;
                 if is_empty {
                     self.l2.clear_head(is_bid)?;
                 }
-                return Ok(order_id.expect("head price must have at least one order"));
+                return Ok(order.expect("head price must have at least one order").clone());
             }
         }
     }
@@ -185,7 +185,7 @@ impl OrderBook {
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<OrderId, OrderBookError> {
+    ) -> Result<Order, OrderBookError> {
         let cid = cid.into();
         let pair_id = pair_id.into();
         let owner = owner.into();
@@ -195,9 +195,10 @@ impl OrderBook {
         }
         let pqty = amnt - iqty;
 
-        let id = self.l3.create_order(
+        let order = self.l3.create_order(
             cid.clone(),
             owner.clone(),
+            true,
             price,
             amnt,
             iqty,
@@ -209,7 +210,7 @@ impl OrderBook {
         // emit the event for the order created
         event::emit_event(SpotEvent::SpotOrderPlaced {
             cid: cid.clone(),
-            order_id: id.to_bytes().to_vec(),
+            order_id: order.id.to_bytes().to_vec(),
             maker_account_id: owner.into(),
             is_bid: true,
             price: price,
@@ -223,7 +224,7 @@ impl OrderBook {
 
         // update the price level on the orderbook
         self.update_price_level(cid, pair_id, true, true, price, pqty, amnt, None)?;
-        Ok(id)
+        Ok(order)
     }
 
     /// Places an ask order.
@@ -245,7 +246,7 @@ impl OrderBook {
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<OrderId, OrderBookError> {
+    ) -> Result<Order, OrderBookError> {
         let cid = cid.into();
         let pair_id = pair_id.into();
         let owner = owner.into();
@@ -257,9 +258,10 @@ impl OrderBook {
         }
         let pqty = amnt - iqty;
 
-        let id = self.l3.create_order(
+        let order = self.l3.create_order(
             cid.clone(),
             owner.clone(),
+            false,
             price,
             amnt,
             iqty,
@@ -271,7 +273,7 @@ impl OrderBook {
         // emit the event for the order created
         event::emit_event(SpotEvent::SpotOrderPlaced {
             cid: cid.clone(),
-            order_id: id.to_bytes().to_vec(),
+            order_id: order.id.to_bytes().to_vec(),
             maker_account_id: owner,
             is_bid: false,
             price: price,
@@ -285,7 +287,7 @@ impl OrderBook {
 
         // update the price level on the orderbook
         self.update_price_level(cid, pair_id, true, false, price, pqty, amnt, None)?;
-        Ok(id)
+        Ok(order)
     }
 
     /// Executes a trade.
@@ -300,11 +302,13 @@ impl OrderBook {
     /// The function returns OrderMatch to report events
     pub fn execute(
         &mut self,
-        is_bid: bool,
-        maker_order_id: OrderId,
+        cid: impl Into<Vec<u8>>,
+        taker_order: Order,
+        maker_order: Order,
         pair_id: impl Into<Vec<u8>>,
         base_asset_id: impl Into<Vec<u8>>,
         quote_asset_id: impl Into<Vec<u8>>,
+        is_bid: bool,
         taker_account_id: impl Into<Vec<u8>>,
         managing_account_id: impl Into<Vec<u8>>,
         amount: u64,
@@ -313,39 +317,25 @@ impl OrderBook {
         taker_fee_bps: u16,
     ) -> Result<OrderMatch, OrderBookError> {
         // Get order data before mutable borrow
-        let order = self.l3.get_order(maker_order_id)?.clone();
-        if order.expires_at <= now {
-            self._expire_order(maker_order_id, is_bid, pair_id.into(), now)?;
+        if maker_order.expires_at <= now {
+            self._expire_order(maker_order.id, is_bid, pair_id.into(), now)?;
+            // let _match_at at pair.rs handle the expired order error
             return Err(OrderBookError::OrderExpired);
         }
-        let order_price = order.price;
-        let order_owner = order.owner.clone();
-        let maker_fee_bps = order.maker_fee_bps;
-        let order_cid = order.cid.clone();
-        let order_amnt = order.amnt;
-        let order_iqty = order.iqty;
-        let order_pqty = order.pqty;
-        let order_cqty = order.cqty;
-        let order_expires_at = order.expires_at;
-        let pair_id = pair_id.into();
-        let base_asset_id = base_asset_id.into();
-        let quote_asset_id = quote_asset_id.into();
-        let taker_account_id = taker_account_id.into();
-        let managing_account_id = managing_account_id.into();
 
         let (amount_to_send, delete_price) =
             self.l3
-                .decrease_order(maker_order_id, amount, 1u64, clear)?;
+                .decrease_order(maker_order.id, amount, 1u64, clear)?;
 
         // Calculate base and quote amounts based on order type
         let (base_amount, quote_amount) = if is_bid {
             // For bid orders: amount_to_send is quote currency, calculate base received
-            let base = (amount_to_send as u128 * 1_0000_0000) / order_price as u128;
-            (base as u64, amount_to_send)
+            let base = (amount_to_send * 1_0000_0000) / maker_order.price;
+            (base, amount_to_send)
         } else {
             // For ask orders: amount_to_send is base currency, calculate quote received
-            let quote = (amount_to_send as u128 * order_price as u128) / 1_0000_0000;
-            (amount_to_send, quote as u64)
+            let quote = (amount_to_send * maker_order.price) / 1_0000_0000;
+            (amount_to_send, quote)
         };
 
         // Calculate fees using fee table
@@ -353,7 +343,7 @@ impl OrderBook {
             is_bid,
             base_amount,
             quote_amount,
-            maker_fee_bps,
+            maker_order.maker_fee_bps,
             taker_fee_bps,
         );
 
@@ -361,35 +351,34 @@ impl OrderBook {
         let match_timestamp = now;
 
         // emit event for both maker and taker
-        let (remaining_cqty, remaining_pqty) = match self.l3.get_order(maker_order_id) {
+        let (remaining_cqty, remaining_pqty) = match self.l3.get_order(maker_order.id) {
             Ok(updated) => (updated.cqty, updated.pqty),
             Err(_) => (0, 0),
         };
-        let delta_cqty = order_cqty.saturating_sub(remaining_cqty);
-        let delta_pqty = order_pqty.saturating_sub(remaining_pqty);
-        // taker order history event
-        event::emit_event(SpotEvent::SpotOrderPartiallyMatched {
-            cid: order_cid.clone(),
-            order_id: maker_order_id.to_bytes().to_vec(),
-            maker_account_id: order_owner.clone(),
-            taker_account_id: taker_account_id.clone(),
-            is_bid: is_bid,
-            price: order_price,
-            pair_id: pair_id.clone(),
-            base_asset_id: base_asset_id.clone(),
-            quote_asset_id: quote_asset_id.clone(),
+        let delta_cqty = maker_order.cqty.saturating_sub(remaining_cqty);
+        let delta_pqty = maker_order.pqty.saturating_sub(remaining_pqty);
+        // emit maker / taker order history event
+        self._emit_taker_maker_match(
+            taker_order_cid,
+            taker_order_id,
+            maker_order.cid.clone(),
+            maker_order_id,
+            taker_account_id.clone(),
+            
+            order_owner.clone(),
+            is_bid,
+            order_price,
+            pair_id.clone(),
+            base_asset_id.clone(),
+            quote_asset_id.clone(),
             base_amount,
             quote_amount,
             base_fee,
             quote_fee,
-            amnt: order_amnt,
-            iqty: order_iqty,
-            pqty: remaining_pqty,
-            cqty: remaining_cqty,
-            timestamp: match_timestamp,
-            expires_at: order_expires_at,
-        });
-
+            match_timestamp,
+            order_expires_at,
+        )?;
+        
         // emit the event for sending fees from maker and taker to the managing account
         self._emit_fee_transfers(
             order_cid.clone(),
@@ -487,6 +476,29 @@ impl OrderBook {
         Ok(())
     }
 
+    fn _emit_taker_maker_match(
+        &self,
+        taker_order: Order,
+        maker_order: Order,
+        taker_account_id: impl Into<Vec<u8>>,
+        maker_account_id: impl Into<Vec<u8>>,
+        taker_matching_cqty: u64,
+        maker_remaining_cqty: u64,
+        is_bid: bool,
+        price: u64,
+        pair_id: impl Into<Vec<u8>>,
+        base_asset_id: impl Into<Vec<u8>>,
+        quote_asset_id: impl Into<Vec<u8>>,
+        base_amount: u64,
+        quote_amount: u64,
+        base_fee: u64,
+        quote_fee: u64,
+        timestamp: i64,
+        expires_at: i64,
+    ) -> Result<(), OrderBookError> {
+        Ok(())
+    }
+
     fn _emit_fee_transfers(
         &self,
         cid: Vec<u8>,
@@ -542,8 +554,8 @@ impl OrderBook {
         is_placed: bool,
         is_bid: bool,
         price: u64,
-        pqty: u64,
-        cqty: u64,
+        delta_pqty: u64,
+        delta_cqty: u64,
         delete_price: Option<u64>,
     ) -> Result<(), OrderBookError> {
         if is_placed {
@@ -552,12 +564,13 @@ impl OrderBook {
                 self.l2.insert_price(is_bid, price)?;
                 // Initialize level to 0 for new price
                 if is_bid {
-                    self.l2.set_public_bid_level(price, pqty)?;
-                    self.l2.set_current_bid_level(price, cqty)?;
+                    self.l2.set_public_bid_level(price, delta_pqty)?;
+                    self.l2.set_current_bid_level(price, delta_cqty)?;
                 } else {
-                    self.l2.set_public_ask_level(price, pqty)?;
-                    self.l2.set_current_ask_level(price, cqty)?;
+                    self.l2.set_public_ask_level(price, delta_pqty)?;
+                    self.l2.set_current_ask_level(price, delta_cqty)?;
                 }
+                return Ok(());
             }
 
             // throw L2 price missing error if price is not found
@@ -596,8 +609,8 @@ impl OrderBook {
             }
 
             // Calculate new level quantity (add amount)
-            let new_pqty = current_pqty.saturating_add(pqty);
-            let new_cqty = current_cqty.saturating_add(cqty);
+            let new_pqty = current_pqty.saturating_add(delta_pqty);
+            let new_cqty = current_cqty.saturating_add(delta_cqty);
 
             if is_bid {
                 self.l2.set_public_bid_level(price, new_pqty)?;
@@ -659,8 +672,8 @@ impl OrderBook {
 
             // Calculate new level quantity (subtract amount)
             // Use saturating_sub to prevent underflow, but we still check for 0
-            let new_cqty = current_cqty.saturating_sub(cqty);
-            let new_pqty = public_cqty.saturating_sub(pqty);
+            let new_cqty = current_cqty.saturating_sub(delta_cqty);
+            let new_pqty = public_cqty.saturating_sub(delta_pqty);
 
             // Update the level
             if is_bid {

@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::spot::Order;
+
 use super::event::{self, SpotEvent};
 use super::orderbook::{OrderBook, OrderBookError, OrderMatch};
 use super::orders::OrderId;
@@ -64,15 +66,13 @@ impl Pair {
         &mut self,
         cid: Vec<u8>,
         price: u64,
-        remaining: u64,
-        taker_fee_bps: u16,
         is_matching_asks: bool,
-        taker_account_id: Vec<u8>,
+        taker_order: &mut Order,
     ) -> Result<u64, OrderBookError> {
-        let mut current_remaining = remaining;
+        let mut current_remaining = taker_order.cqty;
 
         // Keep matching until remaining is 0 or price level is empty
-        while current_remaining > 0 {
+        while taker_order.cqty > 0 {
             // Check if price level is empty
             if self.orderbook.l3.is_empty(price) {
                 // Remove price level: if matching asks, price level is ask (is_bid = false)
@@ -125,13 +125,10 @@ impl Pair {
     pub fn _limit_order(
         &mut self,
         cid: Vec<u8>,
-        amount: u64,
-        is_bid: bool,
         limit_price: u64,
-        taker_fee_bps: u16,
-        taker_account_id: Vec<u8>,
+        taker_order: &mut Order,
     ) -> Result<(u64, u64, u64), OrderBookError> {
-        let mut remaining = amount;
+        let mut remaining = taker_order.cqty;
 
         // Get last matched price
         let mut lmp = self.orderbook.lmp().unwrap_or(0);
@@ -140,7 +137,7 @@ impl Pair {
         let mut bid_head = self.orderbook.clear_empty_head_or_zero(true);
         let mut ask_head = self.orderbook.clear_empty_head_or_zero(false);
 
-        if is_bid {
+        if taker_order.is_bid {
             // Limit Buy: match against ask orders
             if lmp != 0 {
                 if ask_head != 0 && limit_price < ask_head {
@@ -221,63 +218,28 @@ impl Pair {
     /// - `is_bid`: Whether this is a bid order (true) or ask order (false)
     /// - `time_in_force`: The time in force policy
     /// Returns an error if FOK order is not fully filled
-    fn _handle_time_in_force(
+    fn _handle_time_in_force_post_matching(
         &mut self,
-        order_id: OrderId,
-        price: u64,
-        amount: u64,
-        remaining: u64,
-        is_bid: bool,
+        taker_order: &mut Order,
         time_in_force: TimeInForce,
     ) -> Result<(), OrderBookError> {
         match time_in_force {
-            TimeInForce::FillOrKill => {
-                // FOK: Must be fully filled immediately, otherwise cancel
-                if remaining > 0 {
-                    // Not fully filled, cancel the order
-                    self.orderbook.l3.delete_order(order_id)?;
-                    return Err(OrderBookError::AmountIsZero); // Or create a specific error for FOK rejection
-                }
-                // Fully matched, remove the order
-                self.orderbook.l3.delete_order(order_id)?;
-            }
             TimeInForce::ImmediateOrCancel => {
                 // IOC: Fill what can be filled immediately, cancel the rest
-                if remaining > 0 {
-                    // Partially filled, update order and cancel remaining
-                    let matched = amount - remaining;
-                    if matched > 0 {
-                        self.orderbook
-                            .l3
-                            .decrease_order(order_id, matched, 1u64, false)?;
-                    }
-                    // Cancel remaining portion (delete order)
-                    self.orderbook.l3.delete_order(order_id)?;
-                } else {
-                    // Fully matched, remove the order
-                    self.orderbook.l3.delete_order(order_id)?;
+                if taker_order.cqty > 0 {
+                    self.orderbook.cancel_order(taker_order.cid.clone(), self.pair_id.as_bytes().to_vec(), false, taker_order.id, taker_order.owner.clone())?;
                 }
             }
             TimeInForce::GoodTillCanceled => {
                 // GTC: Place remaining in orderbook
-                if remaining > 0 {
-                    // Update order quantity to remaining amount
-                    let matched = amount - remaining;
-                    if matched > 0 {
-                        self.orderbook
-                            .l3
-                            .decrease_order(order_id, matched, 1u64, false)?;
-                    }
-
-                    // Insert into orderbook
-                    self.orderbook
-                        .l3
-                        .insert_id(price, order_id, remaining as u128)?;
-                    self.orderbook.l2.insert_price(is_bid, price)?;
-                } else {
-                    // Fully matched, remove the order
-                    self.orderbook.l3.delete_order(order_id)?;
-                }
+                if taker_order.cqty > 0 {
+                    // return not doing anything as it is already in the orderbook
+                    return Ok(());
+                } 
+            }
+            _ => {
+                // return not doing anything as it is already in the orderbook
+                return Ok(());
             }
         }
         Ok(())
@@ -330,6 +292,19 @@ impl Pair {
                 return Err(OrderBookError::OrderNotOwnedBySender);
             }
         }
+
+        // place taker order to feed into _limit_order function
+        let taker_order = self.orderbook.place_ask(
+            cid_vec.clone(),
+            self.pair_id.as_bytes().to_vec(),
+            owner_vec.clone(),
+            price,
+            amnt,
+            iqty,
+            timestamp,
+            expires_at,
+            taker_fee_bps,
+        )?;
        
         // Match against existing orders FIRST (before placing in orderbook)
         let (remaining, _bid_head, _ask_head) = self._limit_order(
@@ -341,21 +316,8 @@ impl Pair {
             owner_vec.clone(),
         )?;
 
-        // Create the order (but don't insert into orderbook yet)
-        let order_id = self.orderbook.place_ask(
-            cid_vec.clone(),
-            self.pair_id.as_bytes().to_vec(),
-            owner_vec.clone(),
-            price,
-            amnt,
-            iqty,
-            timestamp,
-            expires_at,
-            maker_fee_bps,
-        )?;
-
         // Handle time_in_force logic
-        self._handle_time_in_force(order_id, price, amnt, remaining, false, time_in_force)?;
+        self._handle_time_in_force_post_matching(&mut taker_order, time_in_force)?;
 
         // Emit OrderPlaced event
         // TODO: emit the event inside the _handle_time_in_force function

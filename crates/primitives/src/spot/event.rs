@@ -84,8 +84,8 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order partially matched in the orderbook being a taker for taker spot order history
-    SpotOrderPartiallyMatched { 
+    /// Spot order partially filled in the orderbook being a taker for taker spot order history
+    SpotOrderPartiallyFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -132,8 +132,8 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order fully matched in the orderbook being a taker for taker spot order history
-    SpotOrderFullyMatched { 
+    /// Spot order fully filled in the orderbook being a taker for taker spot order history
+    SpotOrderFullyFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
@@ -255,63 +255,7 @@ pub enum SpotEvent {
         timestamp: i64, 
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
-    },
-    /// Spot order partially filled in the orderbook being a maker
-    SpotOrderPartiallyFilled { 
-        /// client id
-        #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
-        /// order id
-        #[serde(with = "serde_bytes")]
-        order_id: Vec<u8>, 
-        /// maker account id
-        #[serde(with = "serde_bytes")]
-        maker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
-        /// price
-        price: u64, 
-        /// whole amount
-        amnt: u64,
-        /// iceberg quantity
-        iqty: u64, 
-        /// public quantity
-        pqty: u64,
-        /// current quantity
-        cqty: u64, 
-        /// timestamp, i64 is chosen because of js type compatibility
-        timestamp: i64, 
-        /// expires at timestamp, i64 is chosen because of js type compatibility
-        expires_at: i64 
-    },
-    /// Spot order fully filled in the orderbook being a maker
-    SpotOrderFullyFilled { 
-        /// client id
-        #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
-        /// order id
-        #[serde(with = "serde_bytes")]
-        order_id: Vec<u8>,
-        /// maker account id
-        #[serde(with = "serde_bytes")]
-        maker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
-        /// price
-        price: u64, 
-        /// whole amount
-        amnt: u64,
-        /// iceberg quantity
-        iqty: u64, 
-        /// public quantity
-        pqty: u64,
-        /// current quantity
-        cqty: u64, 
-        /// timestamp, i64 is chosen because of js type compatibility
-        timestamp: i64, 
-        /// expires at timestamp, i64 is chosen because of js type compatibility
-        expires_at: i64 
-    },
+    }
 }
 
 /// A queue of events that can be formatted and displayed.

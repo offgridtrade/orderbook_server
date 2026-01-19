@@ -9,8 +9,12 @@ pub type OrderId = Ulid;
 pub struct Order {
     /// client order id
     pub cid: Vec<u8>,
+    /// order id
+    pub id: OrderId,
     /// owner of the order
     pub owner: Vec<u8>,
+    /// is bid order
+    pub is_bid: bool,
     /// price of the order in 8 decimals
     pub price: u64,
     /// whole amount of the order in 8 decimals without iceberg protection
@@ -33,7 +37,9 @@ impl Order {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cid: Vec<u8>,
+        id: OrderId,
         owner: Vec<u8>,
+        is_bid: bool,
         price: u64,
         amnt: u64,
         iqty: u64,
@@ -45,7 +51,9 @@ impl Order {
     ) -> Self {
         Self {
             cid,
+            id,
             owner,
+            is_bid,
             price,
             amnt,
             iqty,
@@ -152,7 +160,7 @@ impl L3 {
     /// returns (order_id, is_empty)
     /// - `order_id` is the id of the first order in the price level.
     /// - `is_empty` is true when the price level becomes empty.
-    pub fn pop_front(&mut self, price: u64) -> Result<(Option<OrderId>, bool), L3Error> {
+    pub fn pop_front(&mut self, price: u64) -> Result<(Option<Order>, bool), L3Error> {
         Self::ensure_price(price)?;
         let head_id = self.price_head.get(&price).copied();
         if let Some(head_id) = head_id {
@@ -170,11 +178,15 @@ impl L3 {
                 next_node.prev = None;
                 // set next node as the new head of the price level
                 self.price_head.insert(price, next);
-                Ok((Some(head_id), false))
+                // return order from the head_id value
+                let order = self.orders.get(&head_id).ok_or(L3Error::OrderDoesNotExist(head_id))?;
+                Ok((Some(order.clone()), false))
             } else {
                 self.price_head.remove(&price);
                 self.price_tail.remove(&price);
-                Ok((Some(head_id), true))
+                // return order from the head_id value
+                let order = self.orders.get(&head_id).ok_or(L3Error::OrderDoesNotExist(head_id))?;
+                Ok((Some(order.clone()), true))
             }
         } else {
             Ok((None, true))
@@ -201,15 +213,18 @@ impl L3 {
         &mut self,
         cid: impl Into<Vec<u8>>,
         owner: impl Into<Vec<u8>>,
+        is_bid: bool,
         price: u64,
         amnt: u64,
         iqty: u64,
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<OrderId, L3Error> {
+    ) -> Result<Order, L3Error> {
         Self::ensure_price(price)?;
         let cid = cid.into();
+        // generate a new order id
+        let id = Ulid::new();
         let owner = owner.into();
         if iqty > amnt {
             return Err(L3Error::IcebergQuantityIsBiggerThanWholeAmount);
@@ -217,7 +232,9 @@ impl L3 {
         let pqty = amnt - iqty;
         let order = Order::new(
             cid,
+            id,
             owner,
+            is_bid,
             price,
             amnt,
             iqty,
@@ -227,8 +244,6 @@ impl L3 {
             expires_at,
             maker_fee_bps,
         );
-        let id = Ulid::new();
-       
 
         // Create a new node for the order
         self.order_nodes.insert(
@@ -238,10 +253,10 @@ impl L3 {
                 next: None,
             },
         );
-        self.orders.insert(id, order);
+        self.orders.insert(id, order.clone());
         self.insert_id(price, id, amnt as u128)?;
 
-        Ok(id)
+        Ok(order)
     }
 
     /// Decreases the deposit amount for a given order id.

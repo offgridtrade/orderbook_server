@@ -224,13 +224,13 @@ impl L2 {
 
     pub fn insert_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
         if is_bid {
-            self._insert_bid_price(price);
+            let _ = self._insert_bid_price(price)?;
             self.set_public_bid_level(price, 0)?;
             self.set_current_bid_level(price, 0)?;
             Ok(())
         }
         else {
-            self._insert_ask_price(price);
+            let _ = self._insert_ask_price(price)?;
             self.set_public_ask_level(price, 0)?;
             self.set_current_ask_level(price, 0)?;
             Ok(())
