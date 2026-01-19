@@ -112,15 +112,13 @@ fn main() -> anyhow::Result<()> {
                 Ok(event) => {
                     match event.clone() {
                         SpotEvent::SpotOrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
-                        SpotEvent::SpotOrderPartiallyMatched { .. }
-                        | SpotEvent::SpotOrderFullyMatched { .. } => {
-                            metrics_registry_for_events.orders_matched.inc()
-                        }
-                        SpotEvent::SpotOrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
-                        SpotEvent::SpotOrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
-                        SpotEvent::SpotOrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
+                        SpotEvent::SpotOrderPartiallyMatched { .. } => metrics_registry_for_events.orders_partially_matched.inc(),
+                        SpotEvent::SpotOrderFullyMatched { .. } => metrics_registry_for_events.orders_fully_matched.inc(),
                         SpotEvent::SpotOrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
                         SpotEvent::SpotOrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
+                        SpotEvent::SpotOrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
+                        SpotEvent::SpotOrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
+                        SpotEvent::SpotOrderIcebergQuantityChanged { .. } => metrics_registry_for_events.order_iceberg_quantity_changed.inc(),
                         SpotEvent::Transfer { .. } => {}
                         SpotEvent::SpotOrderBlockChanged { .. } => {}
                         SpotEvent::SpotPairAdded { .. } => {}

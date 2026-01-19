@@ -181,9 +181,22 @@ impl L3 {
         }
     }
 
-    /// Creates a new order, assigning the next id. Returns `(id, found_dormant)`.
-    /// - `id` is the id of the new order.
-    /// - `found_dormant` is true when a dormant order was found and stored in the `dormant_order` field.
+    pub fn set_iceberg_quantity(&mut self, id: OrderId, iqty: u64) -> Result<Order, L3Error> {
+        let order = self.orders.get_mut(&id).ok_or(L3Error::OrderDoesNotExist(id))?;
+        // update iqty of the order and public quantity of the order
+        order.iqty = iqty;
+        // update pqty from the difference between amnt and iqty
+        if order.iqty > order.amnt {
+            return Err(L3Error::IcebergQuantityIsBiggerThanWholeAmount);
+        }
+
+        let new_pqty = order.amnt - order.iqty;
+
+        order.pqty = if order.cqty >= new_pqty { new_pqty } else { order.cqty };
+        Ok(order.clone())
+    }
+
+    /// Creates a new order, assigning the next id. Returns the new order id.
     pub fn create_order(
         &mut self,
         cid: impl Into<Vec<u8>>,
@@ -194,7 +207,7 @@ impl L3 {
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<(OrderId, bool), L3Error> {
+    ) -> Result<OrderId, L3Error> {
         Self::ensure_price(price)?;
         let cid = cid.into();
         let owner = owner.into();
@@ -214,13 +227,8 @@ impl L3 {
             expires_at,
             maker_fee_bps,
         );
-        let mut id = Ulid::new();
-        let mut found_dormant = false;
-        while self.orders.contains_key(&id) {
-            self.dormant_order = Some(id);
-            found_dormant = true;
-            id = Ulid::new();
-        }
+        let id = Ulid::new();
+       
 
         // Create a new node for the order
         self.order_nodes.insert(
@@ -231,8 +239,9 @@ impl L3 {
             },
         );
         self.orders.insert(id, order);
+        self.insert_id(price, id, amnt as u128)?;
 
-        Ok((id, found_dormant))
+        Ok(id)
     }
 
     /// Decreases the deposit amount for a given order id.
@@ -269,7 +278,7 @@ impl L3 {
                 order.cqty = decreased;
                 // update the current public quantity of the order
                 // if pqty is bigger than cqty, keep pqty unchanged, otherwise set pqty to cqty as it does not need to hide anymore
-                order.pqty = if order.pqty > order.cqty { order.pqty } else { order.cqty };
+                order.pqty = if order.cqty >= order.pqty { order.pqty } else { order.cqty };
             }
         }
 

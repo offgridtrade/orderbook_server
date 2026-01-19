@@ -77,7 +77,7 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<((OrderId, bool), EventQueue), OrderBookError> {
+    ) -> Result<(OrderId, EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
         let result = pair.limit_sell(
@@ -121,7 +121,7 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<((OrderId, bool), EventQueue), OrderBookError> {
+    ) -> Result<(OrderId, EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
         let result = pair.limit_buy(

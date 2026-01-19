@@ -49,8 +49,10 @@ pub enum SpotEvent {
         is_bid: bool,
         /// price
         price: u64,
-        /// amount
-        amnt: u64,
+        /// public quantity
+        pqty: u64,
+        /// current quantity
+        cqty: u64,
         /// timestamp
         timestamp: i64,
     },
@@ -234,22 +236,14 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order filled in the orderbook regardless of being a maker spot order history
-    SpotOrderFilled { 
+    SpotOrderIcebergQuantityChanged { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
         #[serde(with = "serde_bytes")]
         order_id: Vec<u8>, 
-        /// maker account id
-        #[serde(with = "serde_bytes")]
-        maker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
-        /// price
-        price: u64,
-        /// whole amount
+        /// whole initial amount
         amnt: u64,
         /// iceberg quantity
         iqty: u64, 

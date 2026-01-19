@@ -3,6 +3,7 @@
 This repository contains the matching engine and supporting services for the Offgrid protocol.
 It is organized as a Rust workspace with multiple components that work together to process
 orders, emit events, persist state, and expose APIs to clients.
+Account IDs used across this repo follow the CAIP-10 standard.
 
 ## Components
 

@@ -320,7 +320,7 @@ impl Pair {
         taker_fee_bps: u16,
         // time in force of the order
         time_in_force: TimeInForce,
-    ) -> Result<(OrderId, bool), OrderBookError> {
+    ) -> Result<OrderId, OrderBookError> {
         // If existing order id is provided, update the order
         let cid_vec: Vec<u8> = cid.into();
         let owner_vec: Vec<u8> = owner.into();
@@ -342,7 +342,7 @@ impl Pair {
         )?;
 
         // Create the order (but don't insert into orderbook yet)
-        let (order_id, found_dormant) = self.orderbook.place_ask(
+        let order_id = self.orderbook.place_ask(
             cid_vec.clone(),
             self.pair_id.as_bytes().to_vec(),
             owner_vec.clone(),
@@ -376,7 +376,7 @@ impl Pair {
             });
         }
 
-        Ok((order_id, found_dormant))
+        Ok(order_id)
     }
 
     /// Place a limit buy order (bid order)
@@ -417,9 +417,9 @@ impl Pair {
         taker_fee_bps: u16,
         // time in force of the order
         time_in_force: TimeInForce,
-    ) -> Result<(OrderId, bool), OrderBookError> {
+    ) -> Result<OrderId, OrderBookError> {
 
-        Ok((existing_order_id.unwrap_or_else(OrderId::new), false))
+        Ok(existing_order_id.unwrap_or_else(OrderId::new))
     }
 
     /// Execute a market sell order
@@ -470,6 +470,7 @@ impl Pair {
                 managing_account_id,
                 matched,
                 clear,
+                timestamp,
                 taker_fee_bps,
             )
     }
@@ -523,6 +524,7 @@ impl Pair {
                 managing_account_id,
                 matched,
                 false,
+                timestamp,
                 taker_fee_bps,
             )
     }

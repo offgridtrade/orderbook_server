@@ -481,9 +481,9 @@ fn get_snapshot_bid_levels() {
     
     // Set bid levels
     let levels = vec![
-        Level { price: 100_000_000, quantity: 50_000_000 },  // 1.0 price, 0.5 quantity
-        Level { price: 99_000_000, quantity: 30_000_000 },  // 0.99 price, 0.3 quantity
-        Level { price: 98_000_000, quantity: 20_000_000 },  // 0.98 price, 0.2 quantity
+        Level { price: 100_000_000, pqty: 50_000_000 , cqty: 50_000_000  },  // 1.0 price, 0.5 quantity
+        Level { price: 99_000_000, pqty: 30_000_000 , cqty: 30_000_000  },  // 0.99 price, 0.3 quantity
+        Level { price: 98_000_000, pqty: 20_000_000 , cqty: 20_000_000  },  // 0.98 price, 0.2 quantity
     ];
     l2.set_bid_levels(scale, levels);
     
@@ -492,9 +492,9 @@ fn get_snapshot_bid_levels() {
     
     // Verify format: array of arrays with [price, quantity]
     assert_eq!(snapshot.len(), 3);
-    assert_eq!(snapshot[0], vec![100_000_000, 50_000_000]);
-    assert_eq!(snapshot[1], vec![99_000_000, 30_000_000]);
-    assert_eq!(snapshot[2], vec![98_000_000, 20_000_000]);
+    assert_eq!(snapshot[0], vec![100_000_000, 50_000_000, 50_000_000]);
+    assert_eq!(snapshot[1], vec![99_000_000, 30_000_000, 30_000_000]);
+    assert_eq!(snapshot[2], vec![98_000_000, 20_000_000, 20_000_000]);
 }
 
 #[test]
@@ -504,20 +504,20 @@ fn get_snapshot_ask_levels() {
     
     // Set ask levels
     let levels = vec![
-        Level { price: 101_000_000, quantity: 40_000_000 },  // 1.01 price, 0.4 quantity
-        Level { price: 102_000_000, quantity: 60_000_000 },  // 1.02 price, 0.6 quantity
-        Level { price: 103_000_000, quantity: 80_000_000 },  // 1.03 price, 0.8 quantity
+        Level { price: 101_000_000, pqty: 40_000_000 , cqty: 40_000_000  },  // 1.01 price, 0.4 quantity
+        Level { price: 102_000_000, pqty: 60_000_000 , cqty: 60_000_000  },  // 1.02 price, 0.6 quantity
+        Level { price: 103_000_000, pqty: 80_000_000 , cqty: 80_000_000  },  // 1.03 price, 0.8 quantity
     ];
-    l2.set_ask_levels(scale, levels);
+    let _ =l2.set_ask_levels(scale, levels);
     
     // Get snapshot with step = 3
     let snapshot = l2.get_snapshot_raw(false, scale, 3).expect("get ask snapshot");
     
     // Verify format: array of arrays with [price, quantity]
     assert_eq!(snapshot.len(), 3);
-    assert_eq!(snapshot[0], vec![101_000_000, 40_000_000]);
-    assert_eq!(snapshot[1], vec![102_000_000, 60_000_000]);
-    assert_eq!(snapshot[2], vec![103_000_000, 80_000_000]);
+    assert_eq!(snapshot[0], vec![101_000_000, 40_000_000, 40_000_000]);
+    assert_eq!(snapshot[1], vec![102_000_000, 60_000_000, 60_000_000]);
+    assert_eq!(snapshot[2], vec![103_000_000, 80_000_000, 80_000_000]);
 }
 
 #[test]
@@ -527,20 +527,20 @@ fn get_snapshot_step_smaller_than_levels() {
     
     // Set 5 bid levels
     let levels = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
-        Level { price: 99_000_000, quantity: 20_000_000 },
-        Level { price: 98_000_000, quantity: 30_000_000 },
-        Level { price: 97_000_000, quantity: 40_000_000 },
-        Level { price: 96_000_000, quantity: 50_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
+        Level { price: 99_000_000, pqty: 20_000_000 , cqty: 20_000_000  },
+        Level { price: 98_000_000, pqty: 30_000_000 , cqty: 30_000_000  },
+        Level { price: 97_000_000, pqty: 40_000_000 , cqty: 40_000_000  },
+        Level { price: 96_000_000, pqty: 50_000_000 , cqty: 50_000_000  },
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot with step = 2 (should only return 2 levels)
     let snapshot = l2.get_snapshot_raw(true, scale, 2).expect("get bid snapshot");
     
     assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0], vec![100_000_000, 10_000_000]);
-    assert_eq!(snapshot[1], vec![99_000_000, 20_000_000]);
+    assert_eq!(snapshot[0], vec![100_000_000, 10_000_000, 10_000_000]);
+    assert_eq!(snapshot[1], vec![99_000_000, 20_000_000, 20_000_000]);
 }
 
 #[test]
@@ -550,17 +550,17 @@ fn get_snapshot_step_larger_than_levels() {
     
     // Set only 2 bid levels
     let levels = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
-        Level { price: 99_000_000, quantity: 20_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
+        Level { price: 99_000_000, pqty: 20_000_000 , cqty: 20_000_000  },
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot with step = 5 (should only return 2 levels that exist)
     let snapshot = l2.get_snapshot_raw(true, scale, 5).expect("get bid snapshot");
     
     assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0], vec![100_000_000, 10_000_000]);
-    assert_eq!(snapshot[1], vec![99_000_000, 20_000_000]);
+    assert_eq!(snapshot[0], vec![100_000_000, 10_000_000, 10_000_000]);
+    assert_eq!(snapshot[1], vec![99_000_000, 20_000_000, 20_000_000]);
 }
 
 #[test]
@@ -569,7 +569,7 @@ fn get_snapshot_empty_levels() {
     let scale = 100_000_000;
     
     // Set empty levels
-    l2.set_bid_levels(scale, vec![]);
+    let _ = l2.set_bid_levels(scale, vec![]);
     
     // Get snapshot should return empty array
     let snapshot = l2.get_snapshot_raw(true, scale, 5).expect("get bid snapshot");
@@ -585,9 +585,9 @@ fn get_snapshot_nonexistent_scale() {
     
     // Set levels for one scale
     let levels = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot for nonexistent scale should return empty array
     let snapshot = l2.get_snapshot_raw(true, nonexistent_scale, 5).expect("get bid snapshot");
@@ -603,29 +603,29 @@ fn get_snapshot_multiple_scales() {
     
     // Set bid levels for scale1
     let levels1 = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
-        Level { price: 99_000_000, quantity: 20_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
+        Level { price: 99_000_000, pqty: 20_000_000 , cqty: 20_000_000  },
     ];
-    l2.set_bid_levels(scale1, levels1);
+    let _ = l2.set_bid_levels(scale1, levels1);
     
     // Set bid levels for scale2
     let levels2 = vec![
-        Level { price: 1_000_000_000, quantity: 100_000_000 },
-        Level { price: 990_000_000, quantity: 200_000_000 },
+        Level { price: 1_000_000_000, pqty: 100_000_000 , cqty: 100_000_000  },
+        Level { price: 990_000_000, pqty: 200_000_000 , cqty: 200_000_000  },
     ];
-    l2.set_bid_levels(scale2, levels2);
+    let _ = l2.set_bid_levels(scale2, levels2);
     
     // Get snapshot for scale1
     let snapshot1 = l2.get_snapshot_raw(true, scale1, 5).expect("get bid snapshot scale1");
     assert_eq!(snapshot1.len(), 2);
-    assert_eq!(snapshot1[0], vec![100_000_000, 10_000_000]);
-    assert_eq!(snapshot1[1], vec![99_000_000, 20_000_000]);
+    assert_eq!(snapshot1[0], vec![100_000_000, 10_000_000, 10_000_000]);
+    assert_eq!(snapshot1[1], vec![99_000_000, 20_000_000, 20_000_000]);
     
     // Get snapshot for scale2
     let snapshot2 = l2.get_snapshot_raw(true, scale2, 5).expect("get bid snapshot scale2");
     assert_eq!(snapshot2.len(), 2);
-    assert_eq!(snapshot2[0], vec![1_000_000_000, 100_000_000]);
-    assert_eq!(snapshot2[1], vec![990_000_000, 200_000_000]);
+    assert_eq!(snapshot2[0], vec![1_000_000_000, 100_000_000, 100_000_000]);
+    assert_eq!(snapshot2[1], vec![990_000_000, 200_000_000, 200_000_000]);
 }
 
 #[test]
@@ -635,29 +635,29 @@ fn get_snapshot_bid_vs_ask_separation() {
     
     // Set bid levels
     let bid_levels = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
-        Level { price: 99_000_000, quantity: 20_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
+        Level { price: 99_000_000, pqty: 20_000_000 , cqty: 20_000_000  },
     ];
-    l2.set_bid_levels(scale, bid_levels);
+    let _ = l2.set_bid_levels(scale, bid_levels);
     
     // Set ask levels
     let ask_levels = vec![
-        Level { price: 101_000_000, quantity: 30_000_000 },
-        Level { price: 102_000_000, quantity: 40_000_000 },
+        Level { price: 101_000_000, pqty: 30_000_000 , cqty: 30_000_000  },
+        Level { price: 102_000_000, pqty: 40_000_000 , cqty: 40_000_000  },
     ];
-    l2.set_ask_levels(scale, ask_levels);
+    let _ = l2.set_ask_levels(scale, ask_levels);
     
     // Get bid snapshot
     let bid_snapshot = l2.get_snapshot_raw(true, scale, 5).expect("get bid snapshot");
     assert_eq!(bid_snapshot.len(), 2);
-    assert_eq!(bid_snapshot[0], vec![100_000_000, 10_000_000]);
-    assert_eq!(bid_snapshot[1], vec![99_000_000, 20_000_000]);
+    assert_eq!(bid_snapshot[0], vec![100_000_000, 10_000_000, 10_000_000]);
+    assert_eq!(bid_snapshot[1], vec![99_000_000, 20_000_000, 20_000_000]);
     
     // Get ask snapshot
     let ask_snapshot = l2.get_snapshot_raw(false, scale, 5).expect("get ask snapshot");
     assert_eq!(ask_snapshot.len(), 2);
-    assert_eq!(ask_snapshot[0], vec![101_000_000, 30_000_000]);
-    assert_eq!(ask_snapshot[1], vec![102_000_000, 40_000_000]);
+    assert_eq!(ask_snapshot[0], vec![101_000_000, 30_000_000, 30_000_000]);
+    assert_eq!(ask_snapshot[1], vec![102_000_000, 40_000_000, 40_000_000]);
 }
 
 #[test]
@@ -667,17 +667,17 @@ fn get_snapshot_large_quantities() {
     
     // Set levels with large quantities (but still fit in u64)
     let levels = vec![
-        Level { price: 100_000_000, quantity: 1_000_000_000_000_000_000 },  // Large quantity
-        Level { price: 99_000_000, quantity: 500_000_000_000_000_000 },
+        Level { price: 100_000_000, pqty: 1_000_000_000_000_000_000 , cqty: 1_000_000_000_000_000_000  },  // Large quantity
+        Level { price: 99_000_000, pqty: 500_000_000_000_000_000 , cqty: 500_000_000_000_000_000  },
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot
     let snapshot = l2.get_snapshot_raw(true, scale, 2).expect("get bid snapshot");
     
     assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0], vec![100_000_000, 1_000_000_000_000_000_000]);
-    assert_eq!(snapshot[1], vec![99_000_000, 500_000_000_000_000_000]);
+    assert_eq!(snapshot[0], vec![100_000_000, 1_000_000_000_000_000_000, 1_000_000_000_000_000_000]);
+    assert_eq!(snapshot[1], vec![99_000_000, 500_000_000_000_000_000, 500_000_000_000_000_000]);
 }
 
 #[test]
@@ -687,10 +687,10 @@ fn get_snapshot_zero_step() {
     
     // Set levels
     let levels = vec![
-        Level { price: 100_000_000, quantity: 10_000_000 },
-        Level { price: 99_000_000, quantity: 20_000_000 },
+        Level { price: 100_000_000, pqty: 10_000_000 , cqty: 10_000_000  },
+        Level { price: 99_000_000, pqty: 20_000_000 , cqty: 20_000_000  },
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot with step = 0 (should return empty array)
     let snapshot = l2.get_snapshot_raw(true, scale, 0).expect("get bid snapshot");
@@ -705,20 +705,20 @@ fn get_snapshot_formatted_strings() {
     
     // Set bid levels
     let levels = vec![
-        Level { price: 100_000_000, quantity: 50_000_000 },  // 1.0 price, 0.5 quantity
-        Level { price: 99_000_000, quantity: 30_000_000 },  // 0.99 price, 0.3 quantity
-        Level { price: 98_000_000, quantity: 20_000_000 },  // 0.98 price, 0.2 quantity
+        Level { price: 100_000_000, pqty: 50_000_000 , cqty: 50_000_000  },  // 1.0 price, 0.5 quantity
+        Level { price: 99_000_000, pqty: 30_000_000 , cqty: 30_000_000  },  // 0.99 price, 0.3 quantity
+        Level { price: 98_000_000, pqty: 20_000_000 , cqty: 20_000_000  },  // 0.98 price, 0.2 quantity
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get formatted snapshot
     let snapshot = l2.get_snapshot(true, scale, 3).expect("get formatted bid snapshot");
     
     // Verify format: array of arrays with formatted strings
     assert_eq!(snapshot.len(), 3);
-    assert_eq!(snapshot[0], vec!["1.00000000".to_string(), "0.50000000".to_string()]);
-    assert_eq!(snapshot[1], vec!["0.99000000".to_string(), "0.30000000".to_string()]);
-    assert_eq!(snapshot[2], vec!["0.98000000".to_string(), "0.20000000".to_string()]);
+    assert_eq!(snapshot[0], vec!["1.00000000".to_string(), "0.50000000".to_string(), "0.50000000".to_string()]);
+    assert_eq!(snapshot[1], vec!["0.99000000".to_string(), "0.30000000".to_string(), "0.30000000".to_string()]);
+    assert_eq!(snapshot[2], vec!["0.98000000".to_string(), "0.20000000".to_string(), "0.20000000".to_string()]);
 }
 
 #[test]
@@ -728,17 +728,17 @@ fn get_snapshot_formatted_strings_edge_cases() {
     
     // Set levels with various edge cases
     let levels = vec![
-        Level { price: 0, quantity: 0 },                    // zero values
-        Level { price: 1, quantity: 1 },                     // very small values
-        Level { price: 1_000_000_000, quantity: 500_000_000 }, // 10.0 price, 5.0 quantity
+        Level { price: 0, pqty: 0 , cqty: 0  },                    // zero values
+        Level { price: 1, pqty: 1 , cqty: 1  },                     // very small values
+        Level { price: 1_000_000_000, pqty: 500_000_000 , cqty: 500_000_000  }, // 10.0 price, 5.0 quantity
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get formatted snapshot
     let snapshot = l2.get_snapshot(true, scale, 3).expect("get formatted bid snapshot");
     
     assert_eq!(snapshot.len(), 3);
-    assert_eq!(snapshot[0], vec!["0.00000000".to_string(), "0.00000000".to_string()]);
-    assert_eq!(snapshot[1], vec!["0.00000001".to_string(), "0.00000001".to_string()]);
-    assert_eq!(snapshot[2], vec!["10.00000000".to_string(), "5.00000000".to_string()]);
+    assert_eq!(snapshot[0], vec!["0.00000000".to_string(), "0.00000000".to_string(), "0.00000000".to_string()]);
+    assert_eq!(snapshot[1], vec!["0.00000001".to_string(), "0.00000001".to_string(), "0.00000001".to_string()]);
+    assert_eq!(snapshot[2], vec!["10.00000000".to_string(), "5.00000000".to_string(), "5.00000000".to_string()]);
 }

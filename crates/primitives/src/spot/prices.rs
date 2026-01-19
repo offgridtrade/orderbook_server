@@ -4,13 +4,17 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Level {
+    /// price in 8 decimals
     pub price: u64,
-    pub quantity: u128,
+    /// public quantity in 8 decimals
+    pub pqty: u64,
+    /// current quantity in 8 decimals
+    pub cqty: u64,
 }
 
 impl fmt::Display for Level {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Level(price: {}, quantity: {})", self.price, self.quantity)
+        write!(f, "Level(price: {}, pqty: {}, cqty: {})", self.price, self.pqty, self.cqty)
     }
 }
 
@@ -45,10 +49,14 @@ pub struct L2 {
     pub bid_price_nodes: BTreeMap<u64, PriceNode>,
     /// Mapping price -> node of the ask price linked list
     pub ask_price_nodes: BTreeMap<u64, PriceNode>,
-    /// Bid levels sorted by price descending
-    pub bid_level_map: BTreeMap<u64, u64>,
-    /// Ask levels sorted by price ascending
-    pub ask_level_map: BTreeMap<u64, u64>,
+    /// Public bid levels sorted by price descending
+    pub public_bid_level_map: BTreeMap<u64, u64>,
+    /// Public ask levels sorted by price ascending
+    pub public_ask_level_map: BTreeMap<u64, u64>,
+    /// Current bid levels sorted by price descending
+    pub current_bid_level_map: BTreeMap<u64, u64>,
+    /// Current ask levels sorted by price ascending
+    pub current_ask_level_map: BTreeMap<u64, u64>,
     /// Bid levels sorted by price descending for snapshot display
     /// key is scale in 8 decimals integer (e.g. 100000000 for 1.00000000, 1000000000 for 10.00000000)
     /// value is a vector of levels in the quantized price space
@@ -84,8 +92,10 @@ impl L2 {
             ask_price_tail: None,
             bid_price_nodes: BTreeMap::new(),
             ask_price_nodes: BTreeMap::new(),
-            bid_level_map: BTreeMap::new(),
-            ask_level_map: BTreeMap::new(),
+            public_bid_level_map: BTreeMap::new(),
+            public_ask_level_map: BTreeMap::new(),
+            current_bid_level_map: BTreeMap::new(),
+            current_ask_level_map: BTreeMap::new(),
             bid_level_list: BTreeMap::new(),
             ask_level_list: BTreeMap::new(),
         }
@@ -107,12 +117,20 @@ impl L2 {
         self.ask_price_head
     }
 
-    pub fn bid_level(&self, price: u64) -> Option<u64> {
-        self.bid_level_map.get(&price).copied()
+    pub fn public_bid_level(&self, price: u64) -> Option<u64> {
+        self.public_bid_level_map.get(&price).copied()
     }
 
-    pub fn ask_level(&self, price: u64) -> Option<u64> {
-        self.ask_level_map.get(&price).copied()
+    pub fn public_ask_level(&self, price: u64) -> Option<u64> {
+        self.public_ask_level_map.get(&price).copied()
+    }
+
+    pub fn current_bid_level(&self, price: u64) -> Option<u64> {
+        self.current_bid_level_map.get(&price).copied()
+    }
+
+    pub fn current_ask_level(&self, price: u64) -> Option<u64> {
+        self.current_ask_level_map.get(&price).copied()
     }
 
     pub fn bid_levels(&self, scale: u64) -> &Vec<Level> {
@@ -133,13 +151,23 @@ impl L2 {
         levels.iter().take(n as usize).cloned().collect()
     }
 
-    pub fn set_bid_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
-        self.bid_level_map.insert(price, level);
+    pub fn set_current_bid_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
+        self.current_bid_level_map.insert(price, level);
         Ok(())
     }
 
-    pub fn set_ask_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
-        self.ask_level_map.insert(price, level);
+    pub fn set_current_ask_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
+        self.current_ask_level_map.insert(price, level);
+        Ok(())
+    }
+
+    pub fn set_public_bid_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
+        self.public_bid_level_map.insert(price, level);
+        Ok(())
+    }
+
+    pub fn set_public_ask_level(&mut self, price: u64, level: u64) -> Result<(), L2Error> {
+        self.public_ask_level_map.insert(price, level);
         Ok(())
     }
 
@@ -197,11 +225,15 @@ impl L2 {
     pub fn insert_price(&mut self, is_bid: bool, price: u64) -> Result<(), L2Error> {
         if is_bid {
             self._insert_bid_price(price);
-            self.set_bid_level(price, 0)
+            self.set_public_bid_level(price, 0)?;
+            self.set_current_bid_level(price, 0)?;
+            Ok(())
         }
         else {
             self._insert_ask_price(price);
-            self.set_ask_level(price, 0)
+            self.set_public_ask_level(price, 0)?;
+            self.set_current_ask_level(price, 0)?;
+            Ok(())
         }
     }
 
@@ -368,13 +400,15 @@ impl L2 {
         if is_bid {
             self._remove_bid_price(price)?;
             // remove the level from the level map
-            self.bid_level_map.remove(&price);
+            self.public_bid_level_map.remove(&price);
+            self.current_bid_level_map.remove(&price);
             Ok(())
         }
         else {
             self._remove_ask_price(price)?;
             // remove the level from the level map
-            self.ask_level_map.remove(&price);
+            self.public_ask_level_map.remove(&price);
+            self.current_ask_level_map.remove(&price);
             Ok(())
         }
     }
@@ -410,7 +444,8 @@ impl L2 {
         self.bid_price_nodes.remove(&price);
 
         // Remove the level from the level map
-        self.bid_level_map.remove(&price);
+        self.public_bid_level_map.remove(&price);
+        self.current_bid_level_map.remove(&price);
 
         Ok(())
     }
@@ -447,7 +482,8 @@ impl L2 {
         self.ask_price_nodes.remove(&price);
 
         // Remove the level from the level map
-        self.ask_level_map.remove(&price);
+        self.public_ask_level_map.remove(&price);
+        self.current_ask_level_map.remove(&price);
 
         Ok(())
     }
@@ -506,7 +542,8 @@ impl L2 {
             .map(|level| {
                 vec![
                     level.price,                    // price in 8 decimals
-                    level.quantity as u64,          // base amount in 8 decimals (convert from u128 to u64)
+                    level.pqty,          // base amount in 8 decimals (convert from u128 to u64)
+                    level.cqty,          // base amount in 8 decimals (convert from u128 to u64)
                 ]
             })
             .collect();
@@ -528,7 +565,8 @@ impl L2 {
             .map(|level| {
                 vec![
                     Self::format_8_decimals(level[0]),  // format price
-                    Self::format_8_decimals(level[1]),  // format quantity
+                    Self::format_8_decimals(level[1]),  // format public quantity
+                    Self::format_8_decimals(level[2]),  // format current quantity
                 ]
             })
             .collect();

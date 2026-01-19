@@ -1,9 +1,9 @@
 use prometheus::{Encoder, Registry, TextEncoder};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
 /// Prometheus metrics registry
@@ -11,10 +11,11 @@ pub struct Metrics {
     pub registry: Registry,
     pub transfers_total: prometheus::IntCounter,
     pub orders_placed: prometheus::IntCounter,
-    pub orders_matched: prometheus::IntCounter,
+    pub orders_partially_matched: prometheus::IntCounter,
+    pub orders_fully_matched: prometheus::IntCounter,
     pub orders_cancelled: prometheus::IntCounter,
     pub orders_expired: prometheus::IntCounter,
-    pub orders_filled: prometheus::IntCounter,
+    pub order_iceberg_quantity_changed: prometheus::IntCounter,
     pub orders_partially_filled: prometheus::IntCounter,
     pub orders_fully_filled: prometheus::IntCounter,
     pub orderbook_depth_bid: prometheus::IntGauge,
@@ -27,17 +28,19 @@ impl Metrics {
         let registry = Registry::new();
 
         // Define metrics
-        let transfers_total = prometheus::IntCounter::new(
-            "orderbook_transfers_total",
-            "Total number of transfers",
-        )?;
+        let transfers_total =
+            prometheus::IntCounter::new("orderbook_transfers_total", "Total number of transfers")?;
         let orders_placed = prometheus::IntCounter::new(
             "orderbook_orders_placed_total",
             "Total number of orders placed",
         )?;
-        let orders_matched = prometheus::IntCounter::new(
-            "orderbook_orders_matched_total",
-            "Total number of orders matched",
+        let orders_partially_matched = prometheus::IntCounter::new(
+            "orderbook_orders_partially_matched_total",
+            "Total number of orders partially matched",
+        )?;
+        let orders_fully_matched = prometheus::IntCounter::new(
+            "orderbook_orders_fully_matched_total",
+            "Total number of orders fully matched",
         )?;
         let orders_cancelled = prometheus::IntCounter::new(
             "orderbook_orders_cancelled_total",
@@ -47,9 +50,9 @@ impl Metrics {
             "orderbook_orders_expired_total",
             "Total number of orders expired",
         )?;
-        let orders_filled = prometheus::IntCounter::new(
-            "orderbook_orders_filled_total",
-            "Total number of orders filled",
+        let order_iceberg_quantity_changed = prometheus::IntCounter::new(
+            "orderbook_order_iceberg_quantity_changed_total",
+            "Total number of iceberg quantity changes",
         )?;
         let orders_partially_filled = prometheus::IntCounter::new(
             "orderbook_orders_partially_filled_total",
@@ -78,10 +81,11 @@ impl Metrics {
         // Register metrics
         registry.register(Box::new(transfers_total.clone()))?;
         registry.register(Box::new(orders_placed.clone()))?;
-        registry.register(Box::new(orders_matched.clone()))?;
+        registry.register(Box::new(orders_partially_matched.clone()))?;
+        registry.register(Box::new(orders_fully_matched.clone()))?;
         registry.register(Box::new(orders_cancelled.clone()))?;
         registry.register(Box::new(orders_expired.clone()))?;
-        registry.register(Box::new(orders_filled.clone()))?;
+        registry.register(Box::new(order_iceberg_quantity_changed.clone()))?;
         registry.register(Box::new(orders_partially_filled.clone()))?;
         registry.register(Box::new(orders_fully_filled.clone()))?;
         registry.register(Box::new(orderbook_depth_bid.clone()))?;
@@ -92,10 +96,11 @@ impl Metrics {
             registry,
             transfers_total,
             orders_placed,
-            orders_matched,
+            orders_partially_matched,
+            orders_fully_matched,
             orders_cancelled,
             orders_expired,
-            orders_filled,
+            order_iceberg_quantity_changed,
             orders_partially_filled,
             orders_fully_filled,
             orderbook_depth_bid,
@@ -113,7 +118,7 @@ pub fn spawn_metrics_thread(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         println!("Prometheus metrics thread started on port {}", port);
-        
+
         let listener = match TcpListener::bind(format!("0.0.0.0:{}", port)) {
             Ok(listener) => listener,
             Err(e) => {
@@ -121,19 +126,22 @@ pub fn spawn_metrics_thread(
                 return;
             }
         };
-        
+
         // Set non-blocking mode
-        listener.set_nonblocking(true).expect("Failed to set non-blocking");
-        
+        listener
+            .set_nonblocking(true)
+            .expect("Failed to set non-blocking");
+
         loop {
             if shutdown_flag.load(Ordering::Relaxed) {
                 break;
             }
-            
+
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     // Set read timeout for the stream
-                    stream.set_read_timeout(Some(Duration::from_secs(5)))
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("Failed to set read timeout");
                     handle_metrics_request(&mut stream, &metrics);
                 }
@@ -148,7 +156,7 @@ pub fn spawn_metrics_thread(
                 }
             }
         }
-        
+
         println!("Prometheus metrics thread stopped");
     })
 }
@@ -156,14 +164,14 @@ pub fn spawn_metrics_thread(
 fn handle_metrics_request(stream: &mut TcpStream, metrics: &Metrics) {
     let mut buffer = [0; 1024];
     let _ = stream.read(&mut buffer);
-    
+
     let request = String::from_utf8_lossy(&buffer);
     let response = if request.starts_with("GET /metrics") {
         let encoder = TextEncoder::new();
         let metric_families = metrics.registry.gather();
         let mut buffer = Vec::new();
         encoder.encode(&metric_families, &mut buffer).unwrap();
-        
+
         format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
             encoder.format_type(),
@@ -175,7 +183,7 @@ fn handle_metrics_request(stream: &mut TcpStream, metrics: &Metrics) {
     } else {
         "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found".to_string()
     };
-    
+
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
 }
@@ -187,4 +195,3 @@ pub fn get_metrics_port() -> u16 {
         .parse::<u16>()
         .unwrap_or(9090)
 }
-
