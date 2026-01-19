@@ -48,6 +48,8 @@ pub enum OrderBookError {
     IcebergQuantityIsBiggerThanWholeAmount,
     #[error("order has expired")]
     OrderExpired,
+    #[error("unsupported time in force is provided")]
+    UnsupportedTimeInForce,
 }
 
 impl From<L3Error> for OrderBookError {
@@ -314,7 +316,6 @@ impl OrderBook {
         amount: u64,
         clear: bool,
         now: i64,
-        taker_fee_bps: u16,
     ) -> Result<OrderMatch, OrderBookError> {
         // Get order data before mutable borrow
         if maker_order.expires_at <= now {
@@ -343,8 +344,8 @@ impl OrderBook {
             is_bid,
             base_amount,
             quote_amount,
-            maker_order.maker_fee_bps,
-            taker_fee_bps,
+            maker_order.fee_bps,
+            taker_order.fee_bps,
         );
 
         // emit the event for order matched
@@ -359,24 +360,15 @@ impl OrderBook {
         let delta_pqty = maker_order.pqty.saturating_sub(remaining_pqty);
         // emit maker / taker order history event
         self._emit_taker_maker_match(
-            taker_order_cid,
-            taker_order_id,
-            maker_order.cid.clone(),
-            maker_order_id,
-            taker_account_id.clone(),
-            
-            order_owner.clone(),
+            taker_order,
+            maker_order,
+            delta_cqty,
+            remaining_cqty,
             is_bid,
-            order_price,
-            pair_id.clone(),
-            base_asset_id.clone(),
-            quote_asset_id.clone(),
-            base_amount,
-            quote_amount,
-            base_fee,
-            quote_fee,
-            match_timestamp,
-            order_expires_at,
+            maker_order.price,
+            pair_id.into(),
+            base_asset_id.into(),
+            quote_asset_id.into(),
         )?;
         
         // emit the event for sending fees from maker and taker to the managing account
@@ -480,8 +472,6 @@ impl OrderBook {
         &self,
         taker_order: Order,
         maker_order: Order,
-        taker_account_id: impl Into<Vec<u8>>,
-        maker_account_id: impl Into<Vec<u8>>,
         taker_matching_cqty: u64,
         maker_remaining_cqty: u64,
         is_bid: bool,
@@ -489,13 +479,111 @@ impl OrderBook {
         pair_id: impl Into<Vec<u8>>,
         base_asset_id: impl Into<Vec<u8>>,
         quote_asset_id: impl Into<Vec<u8>>,
-        base_amount: u64,
-        quote_amount: u64,
+        matching_base_amount: u64,
+        matching_quote_amount: u64,
         base_fee: u64,
         quote_fee: u64,
         timestamp: i64,
         expires_at: i64,
     ) -> Result<(), OrderBookError> {
+
+        let pair_id_vec = pair_id.into();
+        let base_asset_id_vec = base_asset_id.into();
+        let quote_asset_id_vec = quote_asset_id.into();
+
+        // emit event for taker order filled
+        if taker_matching_cqty > 0 {
+            event::emit_event(SpotEvent::SpotOrderPartiallyFilled {
+                cid: taker_order.cid.clone(),
+                order_id: taker_order.id.to_bytes().to_vec(),
+                maker_account_id: taker_order.owner.clone(),
+                taker_account_id: maker_order.owner.clone(),
+                is_bid,
+                price: taker_order.price,
+                pair_id: pair_id_vec.clone(),
+                base_asset_id: base_asset_id_vec.clone(),
+                quote_asset_id: quote_asset_id_vec.clone(),
+                base_amount: matching_base_amount,
+                quote_amount: matching_quote_amount,
+                base_fee: base_fee,
+                quote_fee: quote_fee,
+                amnt: taker_order.amnt,
+                iqty: taker_order.iqty,
+                pqty: taker_order.pqty,
+                cqty: taker_order.cqty,
+                timestamp: timestamp,
+                expires_at: expires_at,
+            });
+        } else {
+            event::emit_event(SpotEvent::SpotOrderFullyFilled {
+                cid: taker_order.cid.clone(),
+                order_id: taker_order.id.to_bytes().to_vec(),
+                maker_account_id: taker_order.owner.clone(),
+                taker_account_id: maker_order.owner.clone(),
+                is_bid,
+                price: taker_order.price,
+                pair_id: pair_id_vec.clone(),
+                base_asset_id: base_asset_id_vec.clone(),
+                quote_asset_id: quote_asset_id_vec.clone(),
+                base_amount: matching_base_amount,
+                quote_amount: matching_quote_amount,
+                base_fee: base_fee,
+                quote_fee: quote_fee,
+                amnt: taker_order.amnt,
+                iqty: taker_order.iqty,
+                pqty: taker_order.pqty,
+                cqty: taker_order.cqty,
+                timestamp: timestamp,
+                expires_at: expires_at,
+            });
+        }
+
+        // emit event for maker order filled
+        if maker_remaining_cqty > 0  {
+            event::emit_event(SpotEvent::SpotOrderPartiallyFilled {
+                cid: maker_order.cid.clone(),
+                order_id: maker_order.id.to_bytes().to_vec(),
+                maker_account_id: maker_order.owner.clone(),
+                taker_account_id: taker_order.owner.clone(),
+                pair_id: pair_id_vec.clone(),
+                base_asset_id:  base_asset_id_vec.clone(),
+                quote_asset_id: quote_asset_id_vec.clone(),
+                is_bid,
+                price,
+                base_amount: matching_base_amount,
+                quote_amount: matching_quote_amount,
+                base_fee: base_fee,
+                quote_fee: quote_fee,
+                amnt: taker_order.amnt,
+                iqty: taker_order.iqty,
+                pqty: taker_order.pqty,
+                cqty: taker_order.cqty,
+                timestamp: timestamp,
+                expires_at: expires_at,
+            });
+        } else {
+            event::emit_event(SpotEvent::SpotOrderFullyFilled {
+                cid: maker_order.cid.clone(),
+                order_id: maker_order.id.to_bytes().to_vec(),
+                maker_account_id: maker_order.owner.clone(),
+                taker_account_id: taker_order.owner.clone(),
+                pair_id: pair_id_vec.clone(),
+                base_asset_id: base_asset_id_vec.clone(),
+                quote_asset_id: quote_asset_id_vec.clone(),
+                is_bid,
+                price,
+                base_amount: matching_base_amount,
+                quote_amount: matching_quote_amount,
+                base_fee: base_fee,
+                quote_fee: quote_fee,
+                amnt: taker_order.amnt,
+                iqty: taker_order.iqty,
+                pqty: taker_order.pqty,
+                cqty: taker_order.cqty,
+                timestamp: timestamp,
+                expires_at: expires_at,
+            });
+        }
         Ok(())
     }
 

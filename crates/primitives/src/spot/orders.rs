@@ -29,8 +29,8 @@ pub struct Order {
     pub timestamp: i64,
     /// expires at timestamp in milliseconds
     pub expires_at: i64,
-    /// maker fee basis points of the order
-    pub maker_fee_bps: u16,
+    /// fee basis points of the order (maker or taker)
+    pub fee_bps: u16,
 }
 
 impl Order {
@@ -47,7 +47,7 @@ impl Order {
         cqty: u64,
         timestamp: i64,
         expires_at: i64,
-        maker_fee_bps: u16,
+        fee_bps: u16,
     ) -> Self {
         Self {
             cid,
@@ -61,7 +61,7 @@ impl Order {
             cqty,
             timestamp,
             expires_at,
-            maker_fee_bps,
+            fee_bps,
         }
     }
 }

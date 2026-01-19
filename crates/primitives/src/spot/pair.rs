@@ -68,7 +68,7 @@ impl Pair {
         price: u64,
         is_matching_asks: bool,
         taker_order: &mut Order,
-    ) -> Result<u64, OrderBookError> {
+    ) -> Result<Order, OrderBookError> {
         let mut current_remaining = taker_order.cqty;
 
         // Keep matching until remaining is 0 or price level is empty
@@ -127,8 +127,7 @@ impl Pair {
         cid: Vec<u8>,
         limit_price: u64,
         taker_order: &mut Order,
-    ) -> Result<(u64, u64, u64), OrderBookError> {
-        let mut remaining = taker_order.cqty;
+    ) -> Result<(Order, u64, u64), OrderBookError> {
 
         // Get last matched price
         let mut lmp = self.orderbook.lmp().unwrap_or(0);
@@ -141,30 +140,29 @@ impl Pair {
             // Limit Buy: match against ask orders
             if lmp != 0 {
                 if ask_head != 0 && limit_price < ask_head {
-                    return Ok((remaining, bid_head, ask_head));
+                    return Ok((taker_order.clone(), bid_head, ask_head));
                 } else if ask_head == 0 {
-                    return Ok((remaining, bid_head, ask_head));
+                    return Ok((taker_order.clone(), bid_head, ask_head));
                 }
             }
 
             // Match against ask orders while ask_head <= limit_price
-            while remaining > 0 && ask_head != 0 && ask_head <= limit_price {
+            while taker_order.cqty > 0 && ask_head != 0 && ask_head <= limit_price {
                 lmp = ask_head; // Update lmp to current match price
                 let match_price = ask_head;
 
                 // Match at this price level until remaining is 0 or price level is empty
-                remaining = self._match_at(
+                self._match_at(
                     cid.clone(),
                     match_price,
-                    remaining,
-                    taker_fee_bps,
                     true, // matching against asks
-                    taker_account_id.clone(),
+                    taker_order,
                 )?;
 
                 // Update ask_head after matching (price level might be empty now)
                 ask_head = self.orderbook.clear_empty_head_or_zero(false);
             }
+
 
             // Update bid_head
             bid_head = self.orderbook.clear_empty_head_or_zero(true);
@@ -172,25 +170,23 @@ impl Pair {
             // Limit Sell: match against bid orders
             if lmp != 0 {
                 if bid_head != 0 && limit_price > bid_head {
-                    return Ok((remaining, bid_head, ask_head));
+                    return Ok((taker_order.clone(), bid_head, ask_head));
                 } else if bid_head == 0 {
-                    return Ok((remaining, bid_head, ask_head));
+                    return Ok((taker_order.clone(), bid_head, ask_head));
                 }
             }
 
             // Match against bid orders while bid_head >= limit_price
-            while remaining > 0 && bid_head != 0 && bid_head >= limit_price {
+            while taker_order.cqty > 0 && bid_head != 0 && bid_head >= limit_price {
                 lmp = bid_head; // Update lmp to current match price
                 let match_price = bid_head;
 
                 // Match at this price level until remaining is 0 or price level is empty
-                remaining = self._match_at(
+                self._match_at(
                     cid.clone(),
                     match_price,
-                    remaining,
-                    taker_fee_bps,
                     false, // matching against bids
-                    taker_account_id.clone(),
+                    &mut taker_order.clone(),
                 )?;
 
                 // Update bid_head after matching (price level might be empty now)
@@ -207,7 +203,7 @@ impl Pair {
             // TODO: Emit NewMarketPrice event if we have such an event type
         }
 
-        Ok((remaining, bid_head, ask_head))
+        Ok((taker_order.clone(), bid_head, ask_head))
     }
 
     /// Handle time_in_force logic for an order after matching
@@ -220,29 +216,32 @@ impl Pair {
     /// Returns an error if FOK order is not fully filled
     fn _handle_time_in_force_post_matching(
         &mut self,
-        taker_order: &mut Order,
         time_in_force: TimeInForce,
+        maker_order: &mut Order,
+        maker_fee_bps: u16,
     ) -> Result<(), OrderBookError> {
         match time_in_force {
             TimeInForce::ImmediateOrCancel => {
                 // IOC: Fill what can be filled immediately, cancel the rest
-                if taker_order.cqty > 0 {
-                    self.orderbook.cancel_order(taker_order.cid.clone(), self.pair_id.as_bytes().to_vec(), false, taker_order.id, taker_order.owner.clone())?;
+                if maker_order.cqty > 0 {
+                    self.orderbook.cancel_order(maker_order.cid.clone(), self.pair_id.as_bytes().to_vec(), maker_order.is_bid, maker_order.id, maker_order.owner.clone())?;
                 }
+                Ok(())
             }
             TimeInForce::GoodTillCanceled => {
                 // GTC: Place remaining in orderbook
-                if taker_order.cqty > 0 {
-                    // return not doing anything as it is already in the orderbook
+                if maker_order.cqty > 0 {
+                    // set the order's fee as maker fee basis points
+                    maker_order.fee_bps = maker_fee_bps;
                     return Ok(());
                 } 
+                Ok(())
             }
             _ => {
-                // return not doing anything as it is already in the orderbook
-                return Ok(());
+                // Return an error as this is not a supported TimeInForce variant
+                Err(OrderBookError::UnsupportedTimeInForce)
             }
         }
-        Ok(())
     }
 
     /// Matches against existing orders first, then places remaining in orderbook based on time_in_force
@@ -307,38 +306,16 @@ impl Pair {
         )?;
        
         // Match against existing orders FIRST (before placing in orderbook)
-        let (remaining, _bid_head, _ask_head) = self._limit_order(
+        let (taker_order, _bid_head, _ask_head) = self._limit_order(
             cid_vec.clone(),
-            amnt,
-            false, // is_bid = false for sell
             price,
-            taker_fee_bps,
-            owner_vec.clone(),
+            &mut taker_order.clone(),
         )?;
 
-        // Handle time_in_force logic
-        self._handle_time_in_force_post_matching(&mut taker_order, time_in_force)?;
+        // Handle time_in_force logic as maker order
+        self._handle_time_in_force_post_matching(time_in_force, &mut taker_order.clone(), maker_fee_bps)?;
 
-        // Emit OrderPlaced event
-        // TODO: emit the event inside the _handle_time_in_force function
-        let order_info = self.orderbook.l3.get_order(order_id);
-        if let Ok(order) = order_info {
-            event::emit_event(SpotEvent::SpotOrderPlaced {
-                cid: cid_vec.clone(),
-                order_id: order_id.to_bytes().to_vec(),
-                maker_account_id: order.owner.clone(), // Vec<u8>
-                is_bid: false, // ask order
-                price: order.price,
-                amnt: order.amnt,
-                iqty: order.iqty,
-                pqty: order.pqty,
-                cqty: order.cqty,
-                timestamp: order.timestamp,
-                expires_at: order.expires_at,
-            });
-        }
-
-        Ok(order_id)
+        Ok(taker_order.id)
     }
 
     /// Place a limit buy order (bid order)
