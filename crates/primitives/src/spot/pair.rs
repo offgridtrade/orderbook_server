@@ -1,36 +1,58 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::event::{self, SpotEvent};
 use super::orderbook::{OrderBook, OrderBookError, OrderMatch};
+use super::orders::OrderId;
 use super::time_in_force::TimeInForce;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Pair {
     /// Pair ID
     pub pair_id: String,
+    /// base asset id
+    pub base_asset_id: Vec<u8>,
+    /// quote asset id
+    pub quote_asset_id: Vec<u8>,
     /// Orderbook
     pub orderbook: OrderBook,
     /// list of exchange clients which shares the orderbook 
     pub clients: Vec<Vec<u8>>,
+    /// Hash map of client id -> client admin account id
+    pub client_admin_account_ids: HashMap<Vec<u8>, Vec<u8>>,
+    /// Hash map of client id -> client fee account id
+    pub client_fee_account_ids: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Pair {
 
     pub fn new() -> Self {
         Self {
-            orderbook: OrderBook::default(),
             pair_id: String::new(),
+            base_asset_id: Vec::new(),
+            quote_asset_id: Vec::new(),
+            orderbook: OrderBook::default(),
             clients: Vec::new(),
+            client_admin_account_ids: HashMap::new(),
+            client_fee_account_ids: HashMap::new(),
         }
     }
 
-    pub fn add_client(&mut self, cid: impl Into<Vec<u8>>) {
-        self.clients.push(cid.into());
+    pub fn add_client(&mut self, cid: impl Into<Vec<u8>>, admin_account_id: impl Into<Vec<u8>>, fee_account_id: impl Into<Vec<u8>>) {
+        let cid = cid.into();
+        let admin_account_id = admin_account_id.into();
+        let fee_account_id = fee_account_id.into();
+        self.clients.push(cid.clone());
+        self.client_admin_account_ids.insert(cid.clone(), admin_account_id);
+        self.client_fee_account_ids.insert(cid, fee_account_id);
     }
 
     pub fn remove_client(&mut self, cid: impl Into<Vec<u8>>) {
         let cid = cid.into();
         self.clients.retain(|c| *c != cid);
+        self.client_admin_account_ids.remove(&cid);
+        self.client_fee_account_ids.remove(&cid);
     }
     
     /// Match orders at a specific price level
@@ -43,7 +65,7 @@ impl Pair {
         cid: Vec<u8>,
         price: u64,
         remaining: u64,
-        _taker_fee_bps: u16,
+        taker_fee_bps: u16,
         is_matching_asks: bool,
         taker_account_id: Vec<u8>,
     ) -> Result<u64, OrderBookError> {
@@ -70,7 +92,7 @@ impl Pair {
             let match_amount = {
                 let maker_order = self.orderbook.l3.get_order(maker_order_id)?;
                 // Calculate match amount (minimum of remaining and maker order's current quantity)
-                current_remaining.min(maker_order.cq)
+                current_remaining.min(maker_order.cqty)
             };
 
             // Execute the match by decreasing the maker order only
@@ -81,23 +103,6 @@ impl Pair {
                 1u64,
                 false, // clear only if fully matched
             )?;
-
-            // Emit OrderMatched event
-            let maker_order = self.orderbook.l3.get_order(maker_order_id).ok();
-            if let Some(maker) = maker_order {
-                event::emit_event(SpotEvent::SpotOrderMatched {
-                    cid: maker.cid.clone(),
-                    order_id: maker_order_id as u64,
-                    maker_account_id: maker.owner.clone(), // Vec<u8>
-                    taker_account_id: taker_account_id.clone(), // Vec<u8>
-                    is_bid: !is_matching_asks, // true if matching bids (buy), false if matching asks (sell)
-                    price: price,              // match price
-                    iqty: match_amount,        // matched quantity
-                    cqty: match_amount,
-                    timestamp: maker.timestamp,
-                    expires_at: maker.expires_at,
-                });
-            }
 
             current_remaining -= match_amount;
 
@@ -218,7 +223,7 @@ impl Pair {
     /// Returns an error if FOK order is not fully filled
     fn _handle_time_in_force(
         &mut self,
-        order_id: u32,
+        order_id: OrderId,
         price: u64,
         amount: u64,
         remaining: u64,
@@ -296,7 +301,7 @@ impl Pair {
         // gateway client id
         cid: impl Into<Vec<u8>>,
         // order id to update with the transaction if it exists
-        existing_order_id: Option<u32>, // None if new order
+        existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // price of the order
@@ -315,7 +320,7 @@ impl Pair {
         taker_fee_bps: u16,
         // time in force of the order
         time_in_force: TimeInForce,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<(OrderId, bool), OrderBookError> {
         // If existing order id is provided, update the order
         let cid_vec: Vec<u8> = cid.into();
         let owner_vec: Vec<u8> = owner.into();
@@ -358,7 +363,7 @@ impl Pair {
         if let Ok(order) = order_info {
             event::emit_event(SpotEvent::SpotOrderPlaced {
                 cid: cid_vec.clone(),
-                order_id: order_id as u64,
+                order_id: order_id.to_bytes().to_vec(),
                 maker_account_id: order.owner.clone(), // Vec<u8>
                 is_bid: false, // ask order
                 price: order.price,
@@ -393,7 +398,7 @@ impl Pair {
         // gateway client id
         cid: impl Into<Vec<u8>>,
         // order id to update with the transaction if it exists
-        existing_order_id: Option<u32>, // None if new order
+        existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // price of the order
@@ -412,9 +417,9 @@ impl Pair {
         taker_fee_bps: u16,
         // time in force of the order
         time_in_force: TimeInForce,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<(OrderId, bool), OrderBookError> {
 
-        Ok((existing_order_id.unwrap_or(0), false))
+        Ok((existing_order_id.unwrap_or_else(OrderId::new), false))
     }
 
     /// Execute a market sell order
@@ -432,7 +437,7 @@ impl Pair {
         // gateway client id
         cid: impl Into<Vec<u8>>,
         // existing order id to update with the transaction if it exists
-        existing_order_id: Option<u32>, // None if new order
+        existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // total amount of the order
@@ -449,14 +454,20 @@ impl Pair {
         time_in_force: TimeInForce,
     ) -> Result<OrderMatch, OrderBookError> {
         
+        let taker_account_id = owner.into();
+        let managing_account_id = Vec::new();
         let clear = false;
-        let order_id = existing_order_id.unwrap_or(0);
+        let order_id = existing_order_id.unwrap_or_else(OrderId::new);
         let matched = amnt;
         self.orderbook
             .execute(
                 false,
                 order_id,
                 self.pair_id.as_bytes().to_vec(),
+                self.base_asset_id.clone(),
+                self.quote_asset_id.clone(),
+                taker_account_id,
+                managing_account_id,
                 matched,
                 clear,
                 taker_fee_bps,
@@ -477,7 +488,7 @@ impl Pair {
         // gateway client id
         cid: impl Into<Vec<u8>>,
         // existing order id to update with the transaction if it exists
-        existing_order_id: Option<u32>, // None if new order
+        existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
         owner: impl Into<Vec<u8>>,
         // total amount of the order
@@ -496,7 +507,9 @@ impl Pair {
         time_in_force: TimeInForce,
     ) -> Result<OrderMatch, OrderBookError> {
 
-        let order_id = existing_order_id.unwrap_or(0);
+        let taker_account_id = owner.into();
+        let managing_account_id = Vec::new();
+        let order_id = existing_order_id.unwrap_or_else(OrderId::new);
         let clear = false;
         let matched = amnt;
         self.orderbook
@@ -504,6 +517,10 @@ impl Pair {
                 true,
                 order_id,
                 self.pair_id.as_bytes().to_vec(),
+                self.base_asset_id.clone(),
+                self.quote_asset_id.clone(),
+                taker_account_id,
+                managing_account_id,
                 matched,
                 false,
                 taker_fee_bps,
@@ -515,7 +532,7 @@ impl Pair {
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<Vec<u8>>,
         is_bid: bool,
-        order_id: u32,
+        order_id: OrderId,
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
         self.orderbook

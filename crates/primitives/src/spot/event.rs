@@ -60,7 +60,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -81,43 +82,14 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order matched in the orderbook being a taker
-    SpotOrderMatched { 
-        /// client id
-        #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
-        /// order id
-        order_id: u64,
-        /// maker account id
-        #[serde(with = "serde_bytes")]
-        maker_account_id: Vec<u8>, 
-        /// taker account id
-        #[serde(with = "serde_bytes")]
-        taker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
-        /// price
-        price: u64, 
-        /// whole amount
-        amnt: u64,
-        /// iceberg quantity
-        iqty: u64, 
-        /// public quantity
-        pqty: u64,
-        /// current quantity
-        cqty: u64, 
-        /// timestamp, i64 is chosen because of js type compatibility
-        timestamp: i64, 
-        /// expires at timestamp, i64 is chosen because of js type compatibility
-        expires_at: i64 
-    },
-    /// Spot order partially matched in the orderbook being a taker
+    /// Spot order partially matched in the orderbook being a taker for taker spot order history
     SpotOrderPartiallyMatched { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64,
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>,
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -128,6 +100,23 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// pair id
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
+        /// base asset id
+        #[serde(with = "serde_bytes")]
+        base_asset_id: Vec<u8>,
+        /// quote asset id
+        #[serde(with = "serde_bytes")]
+        quote_asset_id: Vec<u8>,
+        /// base amount
+        base_amount: u64,
+        /// quote amount
+        quote_amount: u64,
+        /// base fee
+        base_fee: u64,
+        /// quote fee
+        quote_fee: u64,
         /// whole amount
         amnt: u64,
         /// iceberg quantity
@@ -141,13 +130,14 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order fully matched in the orderbook being a taker
+    /// Spot order fully matched in the orderbook being a taker for taker spot order history
     SpotOrderFullyMatched { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64,
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>,
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -158,6 +148,23 @@ pub enum SpotEvent {
         is_bid: bool, 
         /// price
         price: u64, 
+        /// pair id
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
+        /// base asset id
+        #[serde(with = "serde_bytes")]
+        base_asset_id: Vec<u8>,
+        /// quote asset id
+        #[serde(with = "serde_bytes")]
+        quote_asset_id: Vec<u8>,
+        /// base amount
+        base_amount: u64,
+        /// quote amount
+        quote_amount: u64,
+        /// base fee
+        base_fee: u64,
+        /// quote fee
+        quote_fee: u64,
         /// whole amount
         amnt: u64,
         /// iceberg quantity
@@ -177,7 +184,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -204,7 +212,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -225,13 +234,14 @@ pub enum SpotEvent {
         /// expires at timestamp, i64 is chosen because of js type compatibility
         expires_at: i64 
     },
-    /// Spot order filled in the orderbook regardless of being a maker
+    /// Spot order filled in the orderbook regardless of being a maker spot order history
     SpotOrderFilled { 
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -258,7 +268,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
@@ -285,7 +296,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// order id
-        order_id: u64, 
+        #[serde(with = "serde_bytes")]
+        order_id: Vec<u8>,
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 

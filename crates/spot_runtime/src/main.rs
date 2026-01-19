@@ -112,7 +112,10 @@ fn main() -> anyhow::Result<()> {
                 Ok(event) => {
                     match event.clone() {
                         SpotEvent::SpotOrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
-                        SpotEvent::SpotOrderMatched { .. } => metrics_registry_for_events.orders_matched.inc(),
+                        SpotEvent::SpotOrderPartiallyMatched { .. }
+                        | SpotEvent::SpotOrderFullyMatched { .. } => {
+                            metrics_registry_for_events.orders_matched.inc()
+                        }
                         SpotEvent::SpotOrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),
                         SpotEvent::SpotOrderExpired { .. } => metrics_registry_for_events.orders_expired.inc(),
                         SpotEvent::SpotOrderFilled { .. } => metrics_registry_for_events.orders_filled.inc(),
@@ -120,8 +123,8 @@ fn main() -> anyhow::Result<()> {
                         SpotEvent::SpotOrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
                         SpotEvent::Transfer { .. } => {}
                         SpotEvent::SpotOrderBlockChanged { .. } => {}
-                        SpotEvent::SpotOrderPartiallyMatched { .. } => {}
-                        SpotEvent::SpotOrderFullyMatched { .. } => {}
+                        SpotEvent::SpotPairAdded { .. } => {}
+                        // matched events already counted above
                     }
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {

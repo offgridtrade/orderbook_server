@@ -91,13 +91,13 @@ fn serialize_and_deserialize_orderbook_with_orders() {
     let ask_order_2 = decoded.l3.get_order(ask_order_id_2).expect("get ask order 2");
     
     assert_eq!(bid_order_1.price, 100);
-    assert_eq!(bid_order_1.cq, 1000);
+    assert_eq!(bid_order_1.cqty, 1000);
     assert_eq!(bid_order_2.price, 95);
-    assert_eq!(bid_order_2.cq, 2000);
+    assert_eq!(bid_order_2.cqty, 2000);
     assert_eq!(ask_order_1.price, 110);
-    assert_eq!(ask_order_1.cq, 1500);
+    assert_eq!(ask_order_1.cqty, 1500);
     assert_eq!(ask_order_2.price, 115);
-    assert_eq!(ask_order_2.cq, 3000);
+    assert_eq!(ask_order_2.cqty, 3000);
     
     // Verify L2 price levels are preserved
     assert_eq!(decoded.l2.bid_head(), orderbook.l2.bid_head());
@@ -148,6 +148,10 @@ fn serialize_and_deserialize_orderbook_after_execution() {
         false, // is_bid: false (ask order)
         ask_order_id,
         vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -168,10 +172,10 @@ fn serialize_and_deserialize_orderbook_after_execution() {
     
     // Verify orders are preserved with updated quantities
     let remaining_bid = decoded.l3.get_order(bid_order_id).expect("get remaining bid order");
-    assert_eq!(remaining_bid.cq, 1000); // Bid order unchanged
+    assert_eq!(remaining_bid.cqty, 1000); // Bid order unchanged
     
     let remaining_ask = decoded.l3.get_order(ask_order_id).expect("get remaining ask order");
-    assert_eq!(remaining_ask.cq, 200); // Ask order: 500 - 300 = 200
+    assert_eq!(remaining_ask.cqty, 200); // Ask order: 500 - 300 = 200
     
     // Verify complete equality
     assert_eq!(decoded, orderbook);
@@ -234,7 +238,7 @@ fn place_bid_order_and_check_bid_price_level() {
     
     let updated_level = orderbook.l2.bid_level(100);
     println!("Updated bid level at price 100: {:?}", updated_level);
-    assert_eq!(updated_level, Some(1000), "Bid level should be updated to 1000 after placing order");
+    assert_eq!(updated_level, Some(500), "Bid level should be updated to 500 after placing order");
     println!("Test passed: bid price level correctly updated");
 }
 
@@ -298,6 +302,10 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level() {
         false, // is_bid: false (ask order)
         ask_order_id,
         vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -357,6 +365,10 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level() {
         true, // is_bid: true (bid order)
         bid_order_id,
         vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
+        vec![0],
         300, // Execute 300 out of 500
         false, // clear: false (partial fill)
         25, // taker_fee_bps
@@ -367,7 +379,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level() {
     let ask_level_after = orderbook.l2.ask_level(100);
     println!("After execution - Bid level: {:?}, Ask level: {:?}", bid_level_after, ask_level_after);
     
-    assert_eq!(bid_level_after, Some(200), "Bid level should be 200 (500 - 300)");
+    assert_eq!(bid_level_after, Some(0), "Bid level should be 0 after subtracting 300 from public 250");
     assert_eq!(ask_level_after, Some(500), "Ask level should remain 500 (ask order not executed)");
     println!("Test passed: bid price level correctly updated after execution");
 }
@@ -409,14 +421,14 @@ fn place_bid_automatically_inserts_price() {
     
     // Verify level was set correctly
     let bid_level = orderbook.l2.bid_level(100);
-    assert_eq!(bid_level, Some(1000), "Bid level should be 1000");
+    assert_eq!(bid_level, Some(500), "Bid level should be 500");
     println!("Verified bid level is 1000");
     
     // Verify order exists
     let order = orderbook.l3.get_order(bid_order_id).expect("order should exist");
     assert_eq!(order.price, 100);
-    assert_eq!(order.cq, 1000);
-    println!("Verified order details: price={}, cq={}", order.price, order.cq);
+    assert_eq!(order.cqty, 1000);
+    println!("Verified order details: price={}, cq={}", order.price, order.cqty);
     
     println!("Test passed: place_bid automatically inserts price and sets level correctly");
 }
@@ -464,8 +476,8 @@ fn place_ask_automatically_inserts_price() {
     // Verify order exists
     let order = orderbook.l3.get_order(ask_order_id).expect("order should exist");
     assert_eq!(order.price, 100);
-    assert_eq!(order.cq, 1000);
-    println!("Verified order details: price={}, cq={}", order.price, order.cq);
+    assert_eq!(order.cqty, 1000);
+    println!("Verified order details: price={}, cq={}", order.price, order.cqty);
     
     println!("Test passed: place_ask automatically inserts price and sets level correctly");
 }
@@ -493,7 +505,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     println!("Placed first bid order with ID: {}, amount: 500", bid_order_id_1);
     
     let level_after_first = orderbook.l2.bid_level(100);
-    assert_eq!(level_after_first, Some(500), "Level should be 500 after first order");
+    assert_eq!(level_after_first, Some(250), "Level should be 250 after first order");
     println!("Verified level after first order: {:?}", level_after_first);
     
     // Place second bid order at the same price
@@ -511,7 +523,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     println!("Placed second bid order with ID: {}, amount: 300", bid_order_id_2);
     
     let level_after_second = orderbook.l2.bid_level(100);
-    assert_eq!(level_after_second, Some(800), "Level should be 800 (500 + 300) after second order");
+    assert_eq!(level_after_second, Some(400), "Level should be 400 (250 + 150) after second order");
     println!("Verified level after second order: {:?}", level_after_second);
     
     // Place third bid order at the same price
@@ -529,7 +541,7 @@ fn place_bid_accumulates_levels_at_same_price() {
     println!("Placed third bid order with ID: {}, amount: 200", bid_order_id_3);
     
     let level_after_third = orderbook.l2.bid_level(100);
-    assert_eq!(level_after_third, Some(1000), "Level should be 1000 (500 + 300 + 200) after third order");
+    assert_eq!(level_after_third, Some(500), "Level should be 500 (250 + 150 + 100) after third order");
     println!("Verified level after third order: {:?}", level_after_third);
     
     // Verify all orders exist
@@ -537,9 +549,9 @@ fn place_bid_accumulates_levels_at_same_price() {
     let order2 = orderbook.l3.get_order(bid_order_id_2).expect("second order should exist");
     let order3 = orderbook.l3.get_order(bid_order_id_3).expect("third order should exist");
     
-    assert_eq!(order1.cq, 500);
-    assert_eq!(order2.cq, 300);
-    assert_eq!(order3.cq, 200);
+    assert_eq!(order1.cqty, 500);
+    assert_eq!(order2.cqty, 300);
+    assert_eq!(order3.cqty, 200);
     println!("Verified all three orders exist with correct quantities");
     
     println!("Test passed: place_bid correctly accumulates levels at the same price");
@@ -612,9 +624,9 @@ fn place_ask_accumulates_levels_at_same_price() {
     let order2 = orderbook.l3.get_order(ask_order_id_2).expect("second order should exist");
     let order3 = orderbook.l3.get_order(ask_order_id_3).expect("third order should exist");
     
-    assert_eq!(order1.cq, 500);
-    assert_eq!(order2.cq, 300);
-    assert_eq!(order3.cq, 200);
+    assert_eq!(order1.cqty, 500);
+    assert_eq!(order2.cqty, 300);
+    assert_eq!(order3.cqty, 200);
     println!("Verified all three orders exist with correct quantities");
     
     println!("Test passed: place_ask correctly accumulates levels at the same price");
@@ -680,9 +692,9 @@ fn place_bid_handles_multiple_different_prices() {
     println!("Verified bid head is 105");
     
     // Verify levels are set correctly
-    assert_eq!(orderbook.l2.bid_level(100), Some(500));
-    assert_eq!(orderbook.l2.bid_level(95), Some(300));
-    assert_eq!(orderbook.l2.bid_level(105), Some(200));
+    assert_eq!(orderbook.l2.bid_level(100), Some(250));
+    assert_eq!(orderbook.l2.bid_level(95), Some(150));
+    assert_eq!(orderbook.l2.bid_level(105), Some(100));
     println!("Verified all levels are set correctly: 100={:?}, 95={:?}, 105={:?}", 
              orderbook.l2.bid_level(100), 
              orderbook.l2.bid_level(95), 

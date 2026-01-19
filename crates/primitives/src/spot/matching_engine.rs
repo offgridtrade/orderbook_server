@@ -5,6 +5,7 @@ use crate::spot::event::SpotEvent;
 
 use super::event::{self, EventQueue};
 use super::orderbook::{OrderBookError, OrderMatch};
+use super::orders::OrderId;
 use super::pair::Pair;
 use super::time_in_force::TimeInForce;
 
@@ -23,14 +24,14 @@ impl MatchingEngine {
         }
     }
 
-    pub fn add_pair(&mut self, cid: impl Into<Vec<u8>>, pair_id: impl Into<Vec<u8>>, timestamp: i64) {
+    pub fn add_pair(&mut self, cid: impl Into<Vec<u8>>, client_admin_account_id: impl Into<Vec<u8>>, client_fee_account_id: impl Into<Vec<u8>>, pair_id: impl Into<Vec<u8>>, timestamp: i64) {
         // check if the pair already exists
         let pair_id_vec = pair_id.into();
         let pair_id_str = String::from_utf8(pair_id_vec.clone()).unwrap();
         if self.pairs.contains_key(&pair_id_str) {
             // add the client to the pair
             let cid_vec = cid.into();
-            self.pairs.get_mut(&pair_id_str).unwrap().add_client(cid_vec.clone());
+            self.pairs.get_mut(&pair_id_str).unwrap().add_client(cid_vec.clone(), client_admin_account_id, client_fee_account_id);
             // emit the event
             event::emit_event(SpotEvent::SpotPairAdded {
                 cid: cid_vec,
@@ -44,7 +45,7 @@ impl MatchingEngine {
         let mut pair = Pair::new();
         pair.pair_id = pair_id_str.clone();
         let cid_vec = cid.into();
-        pair.add_client(cid_vec.clone());
+        pair.add_client(cid_vec.clone(), client_admin_account_id, client_fee_account_id);
         // emit the event
         event::emit_event(SpotEvent::SpotPairAdded {
             cid: cid_vec,
@@ -64,7 +65,7 @@ impl MatchingEngine {
         &mut self,
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<String>,
-        existing_order_id: Option<u32>,
+        existing_order_id: Option<OrderId>,
         owner: impl Into<Vec<u8>>,
         price: u64,
         // whole amount
@@ -76,7 +77,7 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<((u32, bool), EventQueue), OrderBookError> {
+    ) -> Result<((OrderId, bool), EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
         let result = pair.limit_sell(
@@ -110,7 +111,7 @@ impl MatchingEngine {
         &mut self,
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<String>,
-        existing_order_id: Option<u32>,
+        existing_order_id: Option<OrderId>,
         owner: impl Into<Vec<u8>>,
         price: u64,
         amount: u64,
@@ -120,7 +121,7 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<((u32, bool), EventQueue), OrderBookError> {
+    ) -> Result<((OrderId, bool), EventQueue), OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
         let result = pair.limit_buy(
@@ -153,7 +154,7 @@ impl MatchingEngine {
         &mut self,
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<String>,
-        existing_order_id: Option<u32>,
+        existing_order_id: Option<OrderId>,
         owner: impl Into<Vec<u8>>,
         amount: u64,
         public_amount: u64,
@@ -193,7 +194,7 @@ impl MatchingEngine {
         &mut self,
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<String>,
-        existing_order_id: Option<u32>,
+        existing_order_id: Option<OrderId>,
         owner: impl Into<Vec<u8>>,
         amount: u64,
         public_amount: u64,
@@ -234,7 +235,7 @@ impl MatchingEngine {
         &mut self,
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<Vec<u8>>,
-        order_id: u32,
+        order_id: OrderId,
         owner: impl Into<Vec<u8>>,
         is_bid: bool,
     ) -> Result<EventQueue, OrderBookError> {

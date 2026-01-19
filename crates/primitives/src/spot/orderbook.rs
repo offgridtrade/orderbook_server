@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::spot::event::{self, SpotEvent};
 
-use super::{market::L1Error, orders::L3Error, prices::L2Error, L1, L2, L3};
+use super::{market::L1Error, orders::{L3Error, OrderId}, prices::L2Error, L1, L2, L3};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 
@@ -13,7 +13,7 @@ pub struct OrderMatch {
     pub quote_amount: u64,
     pub base_fee: u64,
     pub quote_fee: u64,
-    pub trade_id: u64,
+    pub trade_id: OrderId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -81,7 +81,7 @@ impl OrderBook {
     }
 
     /// Gets the required amount of base liquidity to match an order and clear the order.
-    pub fn get_required(&self, order_id: u32) -> Result<u64, OrderBookError> {
+    pub fn get_required(&self, order_id: OrderId) -> Result<u64, OrderBookError> {
         let order = self.l3.get_order(order_id)?;
         Ok(order.cqty)
     }
@@ -119,7 +119,7 @@ impl OrderBook {
     }
 
     /// pop front on the orderbook
-    pub fn pop_front(&mut self, is_bid: bool) -> Result<u32, OrderBookError> {
+    pub fn pop_front(&mut self, is_bid: bool) -> Result<OrderId, OrderBookError> {
         self.clear_empty_head(is_bid)?;
         let head = if is_bid {
             self.l2.bid_head()
@@ -132,7 +132,7 @@ impl OrderBook {
         if is_empty {
             self.l2.clear_head(is_bid)?;
         }
-        Ok(order_id.unwrap())
+        Ok(order_id.expect("head price must have at least one order"))
     }
 
     /// Places a bid order.
@@ -154,7 +154,7 @@ impl OrderBook {
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<(OrderId, bool), OrderBookError> {
         let cid = cid.into();
         let pair_id = pair_id.into();
         let owner = owner.into();
@@ -176,9 +176,9 @@ impl OrderBook {
         )?;
 
          // emit the event for the order created
-         event::emit_event(SpotEvent::SpotOrderPlaced {
+        event::emit_event(SpotEvent::SpotOrderPlaced {
             cid: cid.clone(),
-            order_id: id as u64,
+            order_id: id.to_bytes().to_vec(),
             maker_account_id: owner.into(),
             is_bid: true,
             price: price,
@@ -214,7 +214,7 @@ impl OrderBook {
         timestamp: i64,
         expires_at: i64,
         maker_fee_bps: u16,
-    ) -> Result<(u32, bool), OrderBookError> {
+    ) -> Result<(OrderId, bool), OrderBookError> {
         let cid = cid.into();
         let pair_id = pair_id.into();
         let owner = owner.into();
@@ -240,7 +240,7 @@ impl OrderBook {
         // emit the event for the order created
         event::emit_event(SpotEvent::SpotOrderPlaced {
             cid: cid.clone(),
-            order_id: id as u64,
+            order_id: id.to_bytes().to_vec(),
             maker_account_id: owner,
             is_bid: false,
             price: price,
@@ -269,26 +269,33 @@ impl OrderBook {
     pub fn execute(
         &mut self,
         is_bid: bool,
-        order_id: u32,
+        maker_order_id: OrderId,
         pair_id: impl Into<Vec<u8>>,
+        base_asset_id: impl Into<Vec<u8>>,
+        quote_asset_id: impl Into<Vec<u8>>,
+        taker_account_id: impl Into<Vec<u8>>,
+        managing_account_id: impl Into<Vec<u8>>,
         amount: u64,
         clear: bool,
         taker_fee_bps: u16,
     ) -> Result<OrderMatch, OrderBookError> {
         // Get order data before mutable borrow
-        let (order_price, order_owner, maker_fee_bps, order_cid) = {
-            let order = self.l3.get_order(order_id)?;
-            (
-                order.price,
-                order.owner.clone(),
-                order.maker_fee_bps,
-                order.cid.clone(),
-            )
-        };
+        let order = self.l3.get_order(maker_order_id)?.clone();
+        let order_price = order.price;
+        let order_owner = order.owner.clone();
+        let maker_fee_bps = order.maker_fee_bps;
+        let order_cid = order.cid.clone();
+        let order_amnt = order.amnt;
+        let order_iqty = order.iqty;
+        let order_expires_at = order.expires_at;
         let pair_id = pair_id.into();
+        let base_asset_id = base_asset_id.into();
+        let quote_asset_id = quote_asset_id.into();
+        let taker_account_id = taker_account_id.into();
+        let managing_account_id = managing_account_id.into();
 
         let (amount_to_send, delete_price) =
-            self.l3.decrease_order(order_id, amount, 1u64, clear)?;
+            self.l3.decrease_order(maker_order_id, amount, 1u64, clear)?;
 
         // Calculate base and quote amounts based on order type
         let (base_amount, quote_amount) = if is_bid {
@@ -308,6 +315,53 @@ impl OrderBook {
             quote_amount,
             maker_fee_bps,
             taker_fee_bps,
+        );
+
+        // emit the event for order matched
+        let match_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // emit event for both maker and taker 
+        let (remaining_cqty, remaining_pqty) = match self.l3.get_order(maker_order_id) {
+            Ok(updated) => (updated.cqty, updated.pqty),
+            Err(_) => (0, 0),
+        };
+        // taker order history event
+        event::emit_event(SpotEvent::SpotOrderPartiallyMatched {
+            cid: order_cid.clone(),
+            order_id: maker_order_id.to_bytes().to_vec(),
+            maker_account_id: order_owner.clone(),
+            taker_account_id: taker_account_id.clone(),
+            is_bid: is_bid,
+            price: order_price,
+            pair_id: pair_id.clone(),
+            base_asset_id: base_asset_id.clone(),
+            quote_asset_id: quote_asset_id.clone(),
+            base_amount,
+            quote_amount,
+            base_fee,
+            quote_fee,
+            amnt: order_amnt,
+            iqty: order_iqty,
+            pqty: remaining_pqty,
+            cqty: remaining_cqty,
+            timestamp: match_timestamp,
+            expires_at: order_expires_at,
+        });
+
+        // emit the event for sending fees from maker and taker to the managing account
+        self._emit_fee_transfers(
+            order_cid.clone(),
+            is_bid,
+            order_owner.clone(),
+            taker_account_id,
+            managing_account_id,
+            base_asset_id,
+            quote_asset_id,
+            base_fee,
+            quote_fee,
         );
 
         // adjust price level on the matched amount
@@ -330,7 +384,7 @@ impl OrderBook {
             quote_amount,
             base_fee,
             quote_fee,
-            trade_id: order_id as u64,
+            trade_id: maker_order_id,
         })
     }
 
@@ -354,6 +408,48 @@ impl OrderBook {
                 quote_amount * maker_fee_bps as u64 / 10000,
             )
         }
+    }
+
+    fn _emit_fee_transfers(
+        &self,
+        cid: Vec<u8>,
+        is_bid: bool,
+        maker_account_id: Vec<u8>,
+        taker_account_id: Vec<u8>,
+        managing_account_id: Vec<u8>,
+        base_asset_id: Vec<u8>,
+        quote_asset_id: Vec<u8>,
+        base_fee: u64,
+        quote_fee: u64,
+    ) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let (base_fee_from, quote_fee_from) = if is_bid {
+            (maker_account_id, taker_account_id)
+        } else {
+            (taker_account_id, maker_account_id)
+        };
+
+        event::emit_event(SpotEvent::Transfer {
+            cid: cid.clone(),
+            from: base_fee_from,
+            to: managing_account_id.clone(),
+            asset: base_asset_id,
+            amnt: base_fee,
+            timestamp,
+        });
+
+        event::emit_event(SpotEvent::Transfer {
+            cid,
+            from: quote_fee_from,
+            to: managing_account_id,
+            asset: quote_asset_id,
+            amnt: quote_fee,
+            timestamp,
+        });
     }
 
     /// updates the levels on the orderbook in the price level linked list
@@ -478,7 +574,7 @@ impl OrderBook {
         cid: impl Into<Vec<u8>>,
         pair_id: impl Into<Vec<u8>>,
         is_bid: bool,
-        order_id: u32,
+        order_id: OrderId,
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
         let cid = cid.into();
@@ -498,7 +594,7 @@ impl OrderBook {
         // emit the event for the order cancelled
         event::emit_event(SpotEvent::SpotOrderCancelled {
             cid: cid.clone(),
-            order_id: order_id as u64,
+            order_id: order_id.to_bytes().to_vec(),
             maker_account_id: order.owner.clone(),
             is_bid,
             price: order.price,
@@ -512,6 +608,64 @@ impl OrderBook {
 
         // update the price level on the orderbook
         self.update_price_level(cid, pair_id, false, is_bid, order.price, order.amnt, deleted_price_opt)?;
+        Ok(())
+    }
+
+    pub fn expire_orders(
+        &mut self,
+        is_bid: bool,
+        pair_id: impl Into<Vec<u8>>,
+        base_asset_id: impl Into<Vec<u8>>,
+        quote_asset_id: impl Into<Vec<u8>>,
+        managing_account_id: impl Into<Vec<u8>>,
+        now: i64,
+    ) -> Result<(), OrderBookError> {
+        let pair_id = pair_id.into();
+        let base_asset_id = base_asset_id.into();
+        let quote_asset_id = quote_asset_id.into();
+        let managing_account_id = managing_account_id.into();
+        let expired_orders = self.l3.remove_dormant_orders(now);
+        for (order_id, order) in expired_orders {
+            // emit event for the order expired
+            event::emit_event(SpotEvent::SpotOrderExpired {
+                cid: order.cid.clone(),
+                order_id: order_id.to_bytes().to_vec(),
+                maker_account_id: order.owner.clone(),   
+                is_bid,
+                price: order.price,
+                amnt: order.amnt,
+                iqty: order.iqty,
+                pqty: order.pqty,
+                cqty: order.cqty,
+                timestamp: now,
+                expires_at: order.expires_at,
+            });
+            // emit event for transfer of the expired asset to order owner
+            let expired_asset_id = if is_bid {
+                quote_asset_id.clone()
+            } else {
+                base_asset_id.clone()
+            };
+            event::emit_event(SpotEvent::Transfer {
+                cid: order.cid.clone(),
+                from: managing_account_id.clone(),
+                to: order.owner.clone(),
+                asset: expired_asset_id,
+                amnt: order.amnt,
+                timestamp: now,
+            });
+
+            // update the price level on the orderbook
+            self.update_price_level(
+                order.cid.clone(),
+                pair_id.clone(),
+                false,
+                is_bid,
+                order.price,
+                order.amnt,
+                None,
+            )?;
+        }
         Ok(())
     }
 }
