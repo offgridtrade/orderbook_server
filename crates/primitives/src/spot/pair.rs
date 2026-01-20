@@ -47,7 +47,9 @@ impl Pair {
         let fee_account_id = fee_account_id.into();
         self.clients.push(cid.clone());
         self.client_admin_account_ids.insert(cid.clone(), admin_account_id);
-        self.client_fee_account_ids.insert(cid, fee_account_id);
+        self.client_fee_account_ids.insert(cid.clone(), fee_account_id.clone());
+        // set up fee account for the orderbook
+        self.orderbook.fee_recipients.insert(cid, fee_account_id);
     }
 
     pub fn remove_client(&mut self, cid: impl Into<Vec<u8>>) {
@@ -55,6 +57,8 @@ impl Pair {
         self.clients.retain(|c| *c != cid);
         self.client_admin_account_ids.remove(&cid);
         self.client_fee_account_ids.remove(&cid);
+        // remove fee account from the orderbook
+        self.orderbook.fee_recipients.remove(&cid);
     }
     
     /// Match orders at a specific price level
@@ -115,7 +119,7 @@ impl Pair {
             }
         }
 
-        Ok(current_remaining)
+        Ok(taker_order.clone())
     }
 
     /// Place a limit order (internal helper)
@@ -356,9 +360,9 @@ impl Pair {
         taker_fee_bps: u16,
         // time in force of the order
         time_in_force: TimeInForce,
-    ) -> Result<OrderId, OrderBookError> {
+    ) -> Result<(), OrderBookError> {
 
-        Ok(existing_order_id.unwrap_or_else(OrderId::new))
+        Ok(())
     }
 
     /// Execute a market sell order
@@ -391,27 +395,9 @@ impl Pair {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<OrderMatch, OrderBookError> {
+    ) -> Result<(), OrderBookError> {
         
-        let taker_account_id = owner.into();
-        let managing_account_id = Vec::new();
-        let clear = false;
-        let order_id = existing_order_id.unwrap_or_else(OrderId::new);
-        let matched = amnt;
-        self.orderbook
-            .execute(
-                false,
-                order_id,
-                self.pair_id.as_bytes().to_vec(),
-                self.base_asset_id.clone(),
-                self.quote_asset_id.clone(),
-                taker_account_id,
-                managing_account_id,
-                matched,
-                clear,
-                timestamp,
-                taker_fee_bps,
-            )
+        Ok(())
     }
 
     /// Execute a market buy order
@@ -445,27 +431,9 @@ impl Pair {
         taker_fee_bps: u16,
         // time in forcw
         time_in_force: TimeInForce,
-    ) -> Result<OrderMatch, OrderBookError> {
+    ) -> Result<(), OrderBookError> {
 
-        let taker_account_id = owner.into();
-        let managing_account_id = Vec::new();
-        let order_id = existing_order_id.unwrap_or_else(OrderId::new);
-        let clear = false;
-        let matched = amnt;
-        self.orderbook
-            .execute(
-                true,
-                order_id,
-                self.pair_id.as_bytes().to_vec(),
-                self.base_asset_id.clone(),
-                self.quote_asset_id.clone(),
-                taker_account_id,
-                managing_account_id,
-                matched,
-                false,
-                timestamp,
-                taker_fee_bps,
-            )
+        Ok(())
     }
 
     pub fn cancel_order(
@@ -477,6 +445,7 @@ impl Pair {
         owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
         self.orderbook
-            .cancel_order(cid, pair_id, is_bid, order_id, owner)
+            .cancel_order(cid, pair_id, is_bid, order_id, owner)?;
+        Ok(())
     }
 }

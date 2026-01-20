@@ -77,10 +77,10 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(OrderId, EventQueue), OrderBookError> {
+    ) -> Result<EventQueue, OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        let result = pair.limit_sell(
+        pair.limit_sell(
             cid,
             existing_order_id,
             owner,
@@ -97,7 +97,7 @@ impl MatchingEngine {
         // Drain all events that were emitted during this operation
         let events = event::drain_events();
         
-        Ok((result, events))
+        Ok(events)
     }
 
     /// Place a limit buy order (bid order)
@@ -121,10 +121,10 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(OrderId, EventQueue), OrderBookError> {
+    ) -> Result<EventQueue, OrderBookError> {
         // find a pair
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        let result = pair.limit_buy(
+        pair.limit_buy(
             cid,
             existing_order_id,
             owner,
@@ -141,7 +141,7 @@ impl MatchingEngine {
         // Drain all events that were emitted during this operation
         let events = event::drain_events();
         
-        Ok((result, events))
+        Ok(events)
     }
 
     /// Execute a market sell order
@@ -163,9 +163,9 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(OrderMatch, EventQueue), OrderBookError> {
+    ) -> Result<EventQueue, OrderBookError> {
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        let result = pair.market_sell(
+        pair.market_sell(
             cid,
             existing_order_id,
             owner,
@@ -181,7 +181,7 @@ impl MatchingEngine {
         // Drain all events that were emitted during this operation
         let events = event::drain_events();
         
-        Ok((result, events))
+        Ok(events)
     }
 
     /// Execute a market buy order
@@ -203,9 +203,9 @@ impl MatchingEngine {
         maker_fee_bps: u16,
         taker_fee_bps: u16,
         time_in_force: TimeInForce,
-    ) -> Result<(OrderMatch, EventQueue), OrderBookError> {
+    ) -> Result<EventQueue, OrderBookError> {
         let pair = self.pairs.get_mut(&pair_id.into()).unwrap();
-        let result = pair.market_buy(
+        pair.market_buy(
             cid,
             existing_order_id,
             owner,
@@ -221,7 +221,7 @@ impl MatchingEngine {
         // Drain all events that were emitted during this operation
         let events = event::drain_events();
         
-        Ok((result, events))
+        Ok(events)
     }
 
     /// Cancel an order

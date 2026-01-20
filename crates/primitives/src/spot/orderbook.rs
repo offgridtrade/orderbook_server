@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::spot::{Order, event::{self, SpotEvent}};
+use crate::spot::{
+    event::{self, SpotEvent},
+    Order,
+};
 
 use super::{
     market::L1Error,
@@ -171,7 +174,9 @@ impl OrderBook {
                 if is_empty {
                     self.l2.clear_head(is_bid)?;
                 }
-                return Ok(order.expect("head price must have at least one order").clone());
+                return Ok(order
+                    .expect("head price must have at least one order")
+                    .clone());
             }
         }
     }
@@ -233,7 +238,7 @@ impl OrderBook {
         });
 
         // update the price level on the orderbook
-        self.update_price_level(cid, pair_id, true, true, price, pqty, amnt, None)?;
+        self.update_price_level(pair_id, true, true, price, pqty, amnt, None)?;
         Ok(order)
     }
 
@@ -296,38 +301,41 @@ impl OrderBook {
         });
 
         // update the price level on the orderbook
-        self.update_price_level(cid, pair_id, true, false, price, pqty, amnt, None)?;
+        self.update_price_level(pair_id, true, false, price, pqty, amnt, None)?;
         Ok(order)
     }
 
     /// Executes a trade.
     /// - returns the trade details.
-    /// - `is_bid` is whether the order is a bid order.
-    /// - `order_id` is the id of the order to match against in the orderbook.
+    /// - `is_bid` is whether the order from client is a bid order.
+    /// - `taker_order` is the taker order.
+    /// - `maker_order` is the maker order.
+    /// - `pair_id` is the pair id.
+    /// - `base_asset_id` is the base asset id.
+    /// - `quote_asset_id` is the quote asset id.
+    /// - `managing_account_id` is the managing account id.
     /// - `amount` is the amount of the order.
     /// - `clear` is whether to clear the order.
-    /// - `now` is the current timestamp used for expiration checks.
-    /// - `taker_fee_bps` is the taker fee basis points of the order.
-    /// when the order is cleared, the price level is updated on bid and ask side.
-    /// The function returns OrderMatch to report events
     pub fn execute(
         &mut self,
-        cid: impl Into<Vec<u8>>,
+        is_bid: bool,
         taker_order: Order,
         maker_order: Order,
         pair_id: impl Into<Vec<u8>>,
         base_asset_id: impl Into<Vec<u8>>,
         quote_asset_id: impl Into<Vec<u8>>,
-        is_bid: bool,
-        taker_account_id: impl Into<Vec<u8>>,
-        managing_account_id: impl Into<Vec<u8>>,
         amount: u64,
         clear: bool,
         now: i64,
     ) -> Result<(), OrderBookError> {
+        // Normalize IDs up front so we don't move the Into<Vec<u8>> values multiple times
+        let pair_id_vec = pair_id.into();
+        let base_asset_id_vec = base_asset_id.into();
+        let quote_asset_id_vec = quote_asset_id.into();
+
         // Get order data before mutable borrow
         if maker_order.expires_at <= now {
-            self._expire_order(maker_order.id, is_bid, pair_id.into(), now)?;
+            self._expire_order(maker_order.id, is_bid, pair_id_vec.clone(), now)?;
             // let _match_at at pair.rs handle the expired order error
             return Err(OrderBookError::OrderExpired);
         }
@@ -368,14 +376,14 @@ impl OrderBook {
         let delta_pqty = maker_order.pqty.saturating_sub(remaining_pqty);
         // emit maker / taker order history event
         self._emit_taker_maker_match(
-            taker_order,
-            maker_order,
+            taker_order.clone(),
+            maker_order.clone(),
             delta_cqty,
             remaining_cqty,
             maker_order.price,
-            pair_id.into(),
-            base_asset_id.into(),
-            quote_asset_id.into(),
+            pair_id_vec.clone(),
+            base_asset_id_vec.clone(),
+            quote_asset_id_vec.clone(),
             base_amount,
             quote_amount,
             base_fee,
@@ -383,14 +391,14 @@ impl OrderBook {
             match_timestamp,
             maker_order.expires_at,
         )?;
-        
+
         // emit the event for sending fees from maker and taker to the managing account
         self._emit_fee_transfers(
             is_bid,
-            taker_order,
-            maker_order,
-            base_asset_id.into(),
-            quote_asset_id.into(),
+            taker_order.clone(),
+            maker_order.clone(),
+            base_asset_id_vec.clone(),
+            quote_asset_id_vec.clone(),
             base_fee,
             quote_fee,
             match_timestamp,
@@ -400,11 +408,10 @@ impl OrderBook {
         // Update levels and remove price if level becomes 0 or below
         // Also handle delete_price removal if an order was fully consumed
         self.update_price_level(
-            order_cid,
-            pair_id,
+            pair_id_vec,
             false,
             is_bid,
-            order_price,
+            maker_order.price,
             delta_pqty,
             delta_cqty,
             delete_price,
@@ -446,7 +453,6 @@ impl OrderBook {
         let deleted_price_opt = self.l3.delete_order(order_id)?;
         // update the price level on the orderbook
         self.update_price_level(
-            order.cid.clone(),
             pair_id,
             false,
             is_bid,
@@ -489,7 +495,6 @@ impl OrderBook {
         timestamp: i64,
         expires_at: i64,
     ) -> Result<(), OrderBookError> {
-
         let pair_id_vec = pair_id.into();
         let base_asset_id_vec = base_asset_id.into();
         let quote_asset_id_vec = quote_asset_id.into();
@@ -542,14 +547,14 @@ impl OrderBook {
         }
 
         // emit event for maker order filled
-        if maker_remaining_cqty > 0  {
+        if maker_remaining_cqty > 0 {
             event::emit_event(SpotEvent::SpotOrderPartiallyFilled {
                 cid: maker_order.cid.clone(),
                 order_id: maker_order.id.to_bytes().to_vec(),
                 maker_account_id: maker_order.owner.clone(),
                 taker_account_id: taker_order.owner.clone(),
                 pair_id: pair_id_vec.clone(),
-                base_asset_id:  base_asset_id_vec.clone(),
+                base_asset_id: base_asset_id_vec.clone(),
                 quote_asset_id: quote_asset_id_vec.clone(),
                 is_bid: maker_order.is_bid,
                 price,
@@ -636,17 +641,25 @@ impl OrderBook {
         is_bid: bool,
         taker_order: Order,
         maker_order: Order,
-        base_asset_id: impl Into<Vec<u8>>,
-        quote_asset_id: impl Into<Vec<u8>>,
+        base_asset_id: Vec<u8>,
+        quote_asset_id: Vec<u8>,
         base_fee: u64,
         quote_fee: u64,
         timestamp: i64,
     ) {
-        let base_asset_id_vec = base_asset_id.into();
-        let quote_asset_id_vec = quote_asset_id.into();
+        let base_asset_id_vec = base_asset_id.clone();
+        let quote_asset_id_vec = quote_asset_id.clone();
         // get the cid admin account id from the fee recipients map
-        let taker_cid_admin_account_id = self.fee_recipients.get(&taker_order.cid.clone()).unwrap().to_vec();
-        let maker_cid_admin_account_id = self.fee_recipients.get(&maker_order.cid.clone()).unwrap().to_vec();
+        let taker_cid_admin_account_id = self
+            .fee_recipients
+            .get(&taker_order.cid.clone())
+            .unwrap()
+            .to_vec();
+        let maker_cid_admin_account_id = self
+            .fee_recipients
+            .get(&maker_order.cid.clone())
+            .unwrap()
+            .to_vec();
 
         // if is_bid is true, base fee is sent to taker's cid admin account, quote fee is sent to maker's cid admin account
         if is_bid {
@@ -666,7 +679,7 @@ impl OrderBook {
                 amnt: quote_fee,
                 timestamp: timestamp,
             });
-        } 
+        }
         // if is_bid is false, base fee is sent to maker's cid admin account, quote fee is sent to taker's cid admin account
         else {
             event::emit_event(SpotEvent::Transfer {
@@ -689,14 +702,17 @@ impl OrderBook {
     }
 
     /// updates the levels on the orderbook in the price level linked list
+    /// - `cid` is the client id.
+    /// - `pair_id` is the pair id.
+    /// - `is_placed` is whether the order is placed.
     /// - `is_bid` is whether the order is a bid order.
     /// - `price` is the price of the order.
-    /// - `amount` is the amount to add to the level when isPlaced is true, or the amount to subtract from the level when isPlaced is false.
+    /// - `delta_pqty` is the delta quantity of the public quantity.
+    /// - `delta_cqty` is the delta quantity of the current quantity.
     /// - `delete_price` is an optional price that should be removed (when an order was fully consumed).
     /// Removes the price if the level becomes 0 or below.
     pub fn update_price_level(
         &mut self,
-        cid: Vec<u8>,
         pair_id: Vec<u8>,
         is_placed: bool,
         is_bid: bool,
@@ -769,7 +785,6 @@ impl OrderBook {
 
             // emit the event for the price level update on the orderbook
             event::emit_event(SpotEvent::SpotOrderBlockChanged {
-                cid,
                 pair_id,
                 is_bid,
                 price,
@@ -859,7 +874,6 @@ impl OrderBook {
 
             // emit the event for the price level update on the orderbook
             event::emit_event(SpotEvent::SpotOrderBlockChanged {
-                cid,
                 pair_id,
                 is_bid,
                 price,
@@ -918,8 +932,7 @@ impl OrderBook {
 
         // update the price level on the orderbook
         self.update_price_level(
-            cid,
-            pair_id,
+            pair_id.clone(),
             false,
             is_bid,
             order.price,
@@ -981,7 +994,6 @@ impl OrderBook {
                 None
             };
             self.update_price_level(
-                order.cid.clone(),
                 pair_id.clone(),
                 false,
                 is_bid,
@@ -1013,7 +1025,6 @@ impl OrderBook {
         };
         if delta_pqty > 0 {
             self.update_price_level(
-                cid.clone(),
                 pair_id,
                 is_placed,
                 is_bid,

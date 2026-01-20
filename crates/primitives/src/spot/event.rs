@@ -39,9 +39,6 @@ pub enum SpotEvent {
     },
     /// Spot order block changed in the orderbook
     SpotOrderBlockChanged {
-        /// client id
-        #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
         /// pair id
         #[serde(with = "serde_bytes")]
         pair_id: Vec<u8>,
