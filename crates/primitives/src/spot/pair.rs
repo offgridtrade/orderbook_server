@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::spot::Order;
 
 use super::event::{self, SpotEvent};
-use super::orderbook::{OrderBook, OrderBookError, OrderMatch};
+use super::orderbook::{OrderBook, OrderBookError};
 use super::orders::OrderId;
 use super::time_in_force::TimeInForce;
 
@@ -170,7 +170,6 @@ impl Pair {
     #[cfg_attr(test, allow(dead_code))]
     pub fn _limit_order(
         &mut self,
-        cid: Vec<u8>,
         limit_price: u64,
         taker_order: &mut Order,
     ) -> Result<(Order, u64, u64), OrderBookError> {
@@ -351,7 +350,6 @@ impl Pair {
        
         // Match against existing orders FIRST (before placing in orderbook)
         let (taker_order, _bid_head, _ask_head) = self._limit_order(
-            cid_vec.clone(),
             price,
             &mut taker_order.clone(),
         )?;

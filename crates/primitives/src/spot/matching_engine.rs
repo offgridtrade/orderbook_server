@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::spot::event::SpotEvent;
 
 use super::event::{self, EventQueue};
-use super::orderbook::{OrderBookError, OrderMatch};
+use super::orderbook::OrderBookError;
 use super::orders::OrderId;
 use super::pair::Pair;
 use super::time_in_force::TimeInForce;

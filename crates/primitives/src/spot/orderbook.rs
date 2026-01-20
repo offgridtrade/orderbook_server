@@ -15,18 +15,6 @@ use super::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-
-pub struct OrderMatch {
-    pub sender: Vec<u8>,
-    pub owner: Vec<u8>,
-    pub base_amount: u64,
-    pub quote_amount: u64,
-    pub base_fee: u64,
-    pub quote_fee: u64,
-    pub trade_id: OrderId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OrderBook {
     // L1 state
     pub l1: L1,

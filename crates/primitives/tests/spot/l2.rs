@@ -485,7 +485,7 @@ fn get_snapshot_bid_levels() {
         Level { price: 99_000_000, pqty: 30_000_000 , cqty: 30_000_000  },  // 0.99 price, 0.3 quantity
         Level { price: 98_000_000, pqty: 20_000_000 , cqty: 20_000_000  },  // 0.98 price, 0.2 quantity
     ];
-    l2.set_bid_levels(scale, levels);
+    let _ = l2.set_bid_levels(scale, levels);
     
     // Get snapshot with step = 3
     let snapshot = l2.get_snapshot_raw(true, scale, 3).expect("get bid snapshot");
