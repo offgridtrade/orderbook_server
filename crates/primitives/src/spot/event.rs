@@ -7,6 +7,23 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SpotEvent {
+    SpotPairClientAccountChanged {
+        /// pair id
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
+        /// client id
+        #[serde(with = "serde_bytes")]
+        cid: Option<Vec<u8>>,
+        /// admin account id
+        #[serde(with = "serde_bytes")]
+        admin_account_id: Option<Vec<u8>>,
+        /// fee account id
+        #[serde(with = "serde_bytes")]
+        fee_account_id: Option<Vec<u8>>,
+        /// timestamp
+        /// i64 is chosen because of js type compatibility
+        timestamp: i64,
+    },
     /// Pair added to the matching engine
     SpotPairAdded {
         /// client id

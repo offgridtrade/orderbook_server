@@ -41,24 +41,67 @@ impl Pair {
         }
     }
 
-    pub fn add_client(&mut self, cid: impl Into<Vec<u8>>, admin_account_id: impl Into<Vec<u8>>, fee_account_id: impl Into<Vec<u8>>) {
+    pub fn add_client(
+        &mut self,
+        cid: impl Into<Vec<u8>>,
+        admin_account_id: impl Into<Vec<u8>>,
+        fee_account_id: impl Into<Vec<u8>>,
+    ) {
         let cid = cid.into();
         let admin_account_id = admin_account_id.into();
         let fee_account_id = fee_account_id.into();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // Store client and associated accounts
         self.clients.push(cid.clone());
-        self.client_admin_account_ids.insert(cid.clone(), admin_account_id);
-        self.client_fee_account_ids.insert(cid.clone(), fee_account_id.clone());
-        // set up fee account for the orderbook
-        self.orderbook.fee_recipients.insert(cid, fee_account_id);
+        self.client_admin_account_ids
+            .insert(cid.clone(), admin_account_id.clone());
+        self.client_fee_account_ids
+            .insert(cid.clone(), fee_account_id.clone());
+
+        // Set up fee account for the orderbook
+        self.orderbook
+            .fee_recipients
+            .insert(cid.clone(), fee_account_id.clone());
+
+        // Emit event using the values we already have, avoiding extra lookups
+        event::emit_event(SpotEvent::SpotPairClientAccountChanged {
+            pair_id: self.pair_id.as_bytes().to_vec(),
+            cid: Some(cid),
+            admin_account_id: Some(admin_account_id),
+            fee_account_id: Some(fee_account_id),
+            timestamp,
+        });
     }
 
     pub fn remove_client(&mut self, cid: impl Into<Vec<u8>>) {
         let cid = cid.into();
+
+        // Remove from in-memory structures
         self.clients.retain(|c| *c != cid);
         self.client_admin_account_ids.remove(&cid);
         self.client_fee_account_ids.remove(&cid);
         // remove fee account from the orderbook
         self.orderbook.fee_recipients.remove(&cid);
+
+        // Emit an event indicating the client was removed from this pair.
+        // We keep `cid` so downstream consumers know which client changed,
+        // and set admin/fee accounts to None to indicate removal.
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        event::emit_event(SpotEvent::SpotPairClientAccountChanged {
+            pair_id: self.pair_id.as_bytes().to_vec(),
+            cid: Some(cid),
+            admin_account_id: None,
+            fee_account_id: None,
+            timestamp,
+        });
     }
     
     /// Match orders at a specific price level
