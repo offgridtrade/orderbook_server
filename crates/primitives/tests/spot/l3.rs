@@ -4,16 +4,19 @@ use std::collections::HashMap;
 fn setup_orders() -> L3 {
     let mut storage = L3::new();
     let _id1 = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
-        .expect("create order 1");
+        .create_order("1", "alice", true, 100, 50, 50, 0, 10000, 1000)
+        .expect("create order 1")
+        .id;
 
     let _id2 = storage
-        .create_order("2", "bob", 100, 75, 75, 0, 10000, 1000)
-        .expect("create order 2");
+        .create_order("2", "bob", true, 100, 75, 75, 0, 10000, 1000)
+        .expect("create order 2")
+        .id;
 
     let _id3 = storage
-        .create_order("3", "carol", 100, 20, 20, 0, 10000, 1000)
-        .expect("create order 3");
+        .create_order("3", "carol", true, 100, 20, 20, 0, 10000, 1000)
+        .expect("create order 3")
+        .id;
 
     storage
 }
@@ -22,8 +25,9 @@ fn setup_orders_with_price_level_shift_scenario() -> L3 {
     let mut storage = L3::new();
     let price = 100u64;
     let _id1 = storage
-        .create_order("1", "alice", price, 50, 50, 0, 10000, 1000)
-        .expect("create order 1");
+        .create_order("1", "alice", true, price, 50, 50, 0, 10000, 1000)
+        .expect("create order 1")
+        .id;
     storage
 }
 
@@ -41,7 +45,20 @@ fn setup_orders_with_price_level_shift_scenario_with_id() -> (L3, OrderId) {
 }
 
 fn sample_order() -> Order {
-    Order::new(vec![1], vec![2], 100, 10, 10, 10, 0, 0, 10000, 1000)
+    Order::new(
+        vec![1],
+        OrderId::new(),
+        vec![2],
+        true,
+        100,
+        10,
+        10,
+        10,
+        0,
+        0,
+        10000,
+        1000,
+    )
 }
 
 #[test]
@@ -63,7 +80,9 @@ fn pop_front_removes_first_order_within_given_price_level() {
     let (mut storage, ids) = setup_orders_with_ids();
     let front = storage.pop_front(100);
     assert!(front.is_ok());
-    assert_eq!(front.unwrap(), (Some(ids[0]), false));
+    let (order, emptied) = front.unwrap();
+    assert_eq!(order.unwrap().id, ids[0]);
+    assert!(!emptied);
 }
 
 #[test]
@@ -75,7 +94,9 @@ fn pop_front_removes_head() {
     // pop the first front order
     let front = storage.pop_front(100);
     assert!(front.is_ok());
-    assert_eq!(front.unwrap(), (Some(id), true));
+    let (order, emptied) = front.unwrap();
+    assert_eq!(order.unwrap().id, id);
+    assert!(emptied);
     // check if the head and tail are removed
     assert!(storage.head(100).is_none());
     assert!(storage.tail(100).is_none());
@@ -148,8 +169,9 @@ fn delete_order_removes_order_from_storage_end() {
 fn decrease_order_removes_when_below_dust() {
     let mut storage = L3::new();
     let id = storage
-        .create_order("1", "alice", 100, 75, 75, 0, 10000, 1000)
-        .expect("create order");
+        .create_order("1", "alice", true, 100, 75, 75, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     let (sent, deleted_price) = storage.decrease_order(id, 100, 1, false).unwrap();
     assert_eq!(sent, 75);
@@ -160,28 +182,29 @@ fn decrease_order_removes_when_below_dust() {
 #[test]
 fn decrease_order_updates_cq_correctly() {
     let mut storage = L3::new();
-    let id = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
-        .expect("create order");
+    let order_id = storage
+        .create_order("1", "alice", true, 100, 100, 50, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // Initial state: amnt=100, iqty=50, pqty=50, cqty=100
-    let order = storage.get_order(id).unwrap();
-    assert_eq!(order.amnt, 100);
-    assert_eq!(order.iqty, 50);
-    assert_eq!(order.pqty, 50);
-    assert_eq!(order.cqty, 100);
+    let order_after1 = storage.get_order(order_id).unwrap();
+    assert_eq!(order_after1.amnt, 100);
+    assert_eq!(order_after1.iqty, 50);
+    assert_eq!(order_after1.pqty, 50);
+    assert_eq!(order_after1.cqty, 100);
 
     // Decrease by 30, should update cq to 70
-    let (sent, deleted_price) = storage.decrease_order(id, 30, 1, false).unwrap();
+    let (sent, deleted_price) = storage.decrease_order(order_id, 30, 1, false).unwrap();
     assert_eq!(sent, 30);
     assert_eq!(deleted_price, None);
 
     // Verify cqty is updated to 70 and pqty stays 50
-    let order = storage.get_order(id).unwrap();
-    assert_eq!(order.amnt, 100);
-    assert_eq!(order.iqty, 50);
-    assert_eq!(order.pqty, 50);
-    assert_eq!(order.cqty, 70);
+    let order_after2 = storage.get_order(order_id).unwrap();
+    assert_eq!(order_after2.amnt, 100);
+    assert_eq!(order_after2.iqty, 50);
+    assert_eq!(order_after2.pqty, 50);
+    assert_eq!(order_after2.cqty, 70);
 }
 
 #[test]
@@ -189,21 +212,22 @@ fn decrease_order_pq_unchanged_when_pq_greater_than_cq() {
     let mut storage = L3::new();
     // Create order with pq=50, iq=100, so initially cq=100
     // We'll decrease cq to 30, so pq=50 > cq=30
-    let id = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
-        .expect("create order");
+    let order_id = storage
+        .create_order("1", "alice", true, 100, 100, 50, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // Initial state: pq=50, cq=100 (pq < cq)
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 50);
     assert_eq!(order.cqty, 100);
 
     // Decrease by 70, cq becomes 30, so pq=50 > cq=30
-    let (sent, _) = storage.decrease_order(id, 70, 1, false).unwrap();
+    let (sent, _) = storage.decrease_order(order_id, 70, 1, false).unwrap();
     assert_eq!(sent, 70);
 
     // Verify pqty is capped to cqty (30)
-    let order = storage.get_order(id).unwrap();
+    let order_after = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 30);
     assert_eq!(order.cqty, 30);
 }
@@ -213,21 +237,22 @@ fn decrease_order_pq_updated_when_pq_less_than_or_equal_to_cq() {
     let mut storage = L3::new();
     // Create order with pq=50, iq=100, so initially cq=100
     // After decreasing by 20, cq=80, so pq=50 <= cq=80 and stays 50
-    let id = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
-        .expect("create order");
+    let order_id = storage
+        .create_order("1", "alice", true, 100, 100, 50, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // Initial state: pq=50, cq=100
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 50);
     assert_eq!(order.cqty, 100);
 
     // Decrease by 20, cq becomes 80, so pq=50 < cq=80
-    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    let (sent, _) = storage.decrease_order(order_id, 20, 1, false).unwrap();
     assert_eq!(sent, 20);
 
     // Verify pqty remains 50 since pq <= cq
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 50);
     assert_eq!(order.cqty, 80);
 }
@@ -237,21 +262,22 @@ fn decrease_order_pq_equal_to_cq_after_decrease() {
     let mut storage = L3::new();
     // Create order with pqty=80, iqty=20, so initially cqty=100
     // After decreasing by 20, cq=80, so pq=80 == cq=80
-    let id = storage
-        .create_order("1", "alice", 100, 100, 20, 0, 10000, 1000)
-        .expect("create order");
+    let order_id = storage
+        .create_order("1", "alice", true, 100, 100, 20, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // Initial state: pq=80, cq=100
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 80);
     assert_eq!(order.cqty, 100);
 
     // Decrease by 20, cq becomes 80, so pq=80 == cq=80
-    let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
+    let (sent, _) = storage.decrease_order(order_id, 20, 1, false).unwrap();
     assert_eq!(sent, 20);
 
     // Verify pq is set to cq (80) since pq <= cq
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 80);
     assert_eq!(order.cqty, 80);
 }
@@ -261,21 +287,22 @@ fn decrease_order_pq_unchanged_when_pq_equals_cq_and_both_decrease() {
     let mut storage = L3::new();
     // Create order with pqty=100, iqty=0, so initially cqty=100 (pqty == cqty)
     // After decreasing by 30, cq becomes 70, so pqty should be capped to 70
-    let id = storage
-        .create_order("1", "alice", 100, 100, 0, 0, 10000, 1000)
-        .expect("create order");
+    let order_id = storage
+        .create_order("1", "alice", true, 100, 100, 0, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // Initial state: pq=100, cq=100 (pq == cq)
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 100);
     assert_eq!(order.cqty, 100);
 
     // Decrease by 30, cq becomes 70, so pq=100 > cq=70
-    let (sent, _) = storage.decrease_order(id, 30, 1, false).unwrap();
+    let (sent, _) = storage.decrease_order(order_id, 30, 1, false).unwrap();
     assert_eq!(sent, 30);
 
     // Verify pqty is capped to cq (70)
-    let order = storage.get_order(id).unwrap();
+    let order = storage.get_order(order_id).unwrap();
     assert_eq!(order.pqty, 70);
     assert_eq!(order.cqty, 70);
 }
@@ -285,8 +312,9 @@ fn decrease_order_multiple_decreases_updates_pq_correctly() {
     let mut storage = L3::new();
     // Create order with pq=50, iq=100, so initially cq=100
     let id = storage
-        .create_order("1", "alice", 100, 100, 50, 0, 10000, 1000)
-        .expect("create order");
+        .create_order("1", "alice", true, 100, 100, 50, 0, 10000, 1000)
+        .expect("create order")
+        .id;
 
     // First decrease: 100 -> 80, pq=50 <= cq=80, so pqty stays 50
     let (sent, _) = storage.decrease_order(id, 20, 1, false).unwrap();
@@ -342,8 +370,9 @@ fn ensure_price_zero_is_error() {
 fn insert_id_creates_single_order_node() {
     let mut storage = L3::new();
     let id = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
-        .expect("create order 1");
+        .create_order("1", "alice", true, 100, 50, 50, 0, 10000, 1000)
+        .expect("create order 1")
+        .id;
     
     // check if the order node is created correctly
     let expected_nodes = HashMap::from([(id, Node { prev: None, next: None })]);
@@ -356,16 +385,19 @@ fn insert_id_creates_single_order_node() {
 fn insert_id_creates_fifo_linked_list() {
     let mut storage = L3::new();
     let id1 = storage
-        .create_order("1", "alice", 100, 50, 50, 0, 10000, 1000)
-        .expect("create order 1");
+        .create_order("1", "alice", true, 100, 50, 50, 0, 10000, 1000)
+        .expect("create order 1")
+        .id;
 
     let id2 = storage
-        .create_order("2", "bob", 100, 75, 75, 0, 10000, 1000)
-        .expect("create order 2");
+        .create_order("2", "bob", true, 100, 75, 75, 0, 10000, 1000)
+        .expect("create order 2")
+        .id;
 
     let id3 = storage
-        .create_order("3", "carol", 100, 20, 20, 0, 10000, 1000)
-        .expect("create order 3");
+        .create_order("3", "carol", true, 100, 20, 20, 0, 10000, 1000)
+        .expect("create order 3")
+        .id;
     
     // check if the order nodes are linked in FIFO order: id1 -> id2 -> id3
     let expected_nodes = HashMap::from([
@@ -475,7 +507,9 @@ fn pop_front_updates_linked_list() {
     // Note: node 1 is removed from linked list but may still exist in order_nodes
     let result = storage.pop_front(100);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), (Some(ids[0]), false));
+    let (order, emptied) = result.unwrap();
+    assert_eq!(order.unwrap().id, ids[0]);
+    assert!(!emptied);
     
     // Check that the linked list is correct
     assert_eq!(storage.price_head.get(&100), Some(&ids[1]));
@@ -506,7 +540,9 @@ fn pop_front_removes_last_order_and_clears_price_level() {
     // After pop: empty
     let result = storage.pop_front(100);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), (Some(id), true));
+    let (order, emptied) = result.unwrap();
+    assert_eq!(order.unwrap().id, id);
+    assert!(emptied);
     
     // Node should still exist in order_nodes (not removed by pop_front)
     // but price level should be empty
