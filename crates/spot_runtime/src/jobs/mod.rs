@@ -29,14 +29,49 @@ pub fn spawn_cron_thread(
     })
 }
 
-/// Clean up expired orders from the orderbook
+/// Clean up expired orders from the orderbook.
+///
+/// This uses the underlying `expire_orders` API on the `OrderBook`, which:
+/// - Scans L3 for orders whose `expires_at` is before `now`
+/// - Removes them from L3/L2
+/// - Emits `SpotOrderExpired` and corresponding `Transfer` events
 fn cleanup_expired_orders(orderbook: &mut OrderBook) {
-    // TODO: Implement expired order cleanup
-    // This would iterate through orders and remove expired ones
-    // Example implementation:
-    // 1. Get current timestamp
-    // 2. Iterate through all orders in L3
-    // 3. Check if order.expires_at < current_timestamp
-    // 4. If expired, cancel the order
+    // Current UNIX timestamp in milliseconds
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    // Runtime does not yet track concrete pair / asset / managing account ids here,
+    // so we use placeholder identifiers. Downstream consumers can treat these as
+    // "generic" housekeeping events.
+    let pair_id = b"default_pair".to_vec();
+    let base_asset_id = b"base".to_vec();
+    let quote_asset_id = b"quote".to_vec();
+    let managing_account_id = b"manager".to_vec();
+
+    // Expire resting bid orders
+    if let Err(e) = orderbook.expire_orders(
+        true,
+        pair_id.clone(),
+        base_asset_id.clone(),
+        quote_asset_id.clone(),
+        managing_account_id.clone(),
+        now,
+    ) {
+        eprintln!("Error expiring bid orders in cron job: {:?}", e);
+    }
+
+    // Expire resting ask orders
+    if let Err(e) = orderbook.expire_orders(
+        false,
+        pair_id,
+        base_asset_id,
+        quote_asset_id,
+        managing_account_id,
+        now,
+    ) {
+        eprintln!("Error expiring ask orders in cron job: {:?}", e);
+    }
 }
 

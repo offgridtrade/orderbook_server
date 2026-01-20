@@ -12,7 +12,7 @@ use super::time_in_force::TimeInForce;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Pair {
     /// Pair ID
-    pub pair_id: String,
+    pub pair_id: Vec<u8>,
     /// base asset id
     pub base_asset_id: Vec<u8>,
     /// quote asset id
@@ -31,7 +31,7 @@ impl Pair {
 
     pub fn new() -> Self {
         Self {
-            pair_id: String::new(),
+            pair_id: Vec::new(),
             base_asset_id: Vec::new(),
             quote_asset_id: Vec::new(),
             orderbook: OrderBook::default(),
@@ -69,7 +69,7 @@ impl Pair {
 
         // Emit event using the values we already have, avoiding extra lookups
         event::emit_event(SpotEvent::SpotPairClientAccountChanged {
-            pair_id: self.pair_id.as_bytes().to_vec(),
+            pair_id: self.pair_id.clone(),
             cid: Some(cid),
             admin_account_id: Some(admin_account_id),
             fee_account_id: Some(fee_account_id),
@@ -96,7 +96,7 @@ impl Pair {
             .as_millis() as i64;
 
         event::emit_event(SpotEvent::SpotPairClientAccountChanged {
-            pair_id: self.pair_id.as_bytes().to_vec(),
+            pair_id: self.pair_id.clone(),
             cid: Some(cid),
             admin_account_id: None,
             fee_account_id: None,
@@ -111,7 +111,6 @@ impl Pair {
     #[cfg_attr(test, allow(dead_code))]
     pub fn _match_at(
         &mut self,
-        cid: Vec<u8>,
         price: u64,
         is_matching_asks: bool,
         taker_order: &mut Order,
@@ -200,7 +199,6 @@ impl Pair {
 
                 // Match at this price level until remaining is 0 or price level is empty
                 self._match_at(
-                    cid.clone(),
                     match_price,
                     true, // matching against asks
                     taker_order,
@@ -230,7 +228,6 @@ impl Pair {
 
                 // Match at this price level until remaining is 0 or price level is empty
                 self._match_at(
-                    cid.clone(),
                     match_price,
                     false, // matching against bids
                     &mut taker_order.clone(),
@@ -271,7 +268,7 @@ impl Pair {
             TimeInForce::ImmediateOrCancel => {
                 // IOC: Fill what can be filled immediately, cancel the rest
                 if maker_order.cqty > 0 {
-                    self.orderbook.cancel_order(maker_order.cid.clone(), self.pair_id.as_bytes().to_vec(), maker_order.is_bid, maker_order.id, maker_order.owner.clone())?;
+                    self.orderbook.cancel_order(maker_order.cid.clone(), self.pair_id.clone(), maker_order.is_bid, maker_order.id, maker_order.owner.clone())?;
                 }
                 Ok(())
             }
@@ -342,7 +339,7 @@ impl Pair {
         // place taker order to feed into _limit_order function
         let taker_order = self.orderbook.place_ask(
             cid_vec.clone(),
-            self.pair_id.as_bytes().to_vec(),
+            self.pair_id.clone(),
             owner_vec.clone(),
             price,
             amnt,
@@ -382,27 +379,27 @@ impl Pair {
     pub fn limit_buy(
         &mut self,
         // gateway client id
-        cid: impl Into<Vec<u8>>,
+        _cid: impl Into<Vec<u8>>,
         // order id to update with the transaction if it exists
-        existing_order_id: Option<OrderId>, // None if new order
+        _existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
-        owner: impl Into<Vec<u8>>,
+        _owner: impl Into<Vec<u8>>,
         // price of the order
-        price: u64,
+        _price: u64,
         // total amount of the order
-        amnt: u64,
+        _amnt: u64,
         // iceberg quantity of the order
-        iqty: u64,
+        _iqty: u64,
         // timestamp of the order
-        timestamp: i64,
+        _timestamp: i64,
         // expiring timestamp of the order
-        expires_at: i64,
+        _expires_at: i64,
         // maker fee basis points of the order
-        maker_fee_bps: u16,
+        _maker_fee_bps: u16,
         // taker fee basis points of the order
-        taker_fee_bps: u16,
+        _taker_fee_bps: u16,
         // time in force of the order
-        time_in_force: TimeInForce,
+        _time_in_force: TimeInForce,
     ) -> Result<(), OrderBookError> {
 
         Ok(())
@@ -421,23 +418,23 @@ impl Pair {
     pub fn market_sell(
         &mut self,
         // gateway client id
-        cid: impl Into<Vec<u8>>,
+        _cid: impl Into<Vec<u8>>,
         // existing order id to update with the transaction if it exists
-        existing_order_id: Option<OrderId>, // None if new order
+        _existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
-        owner: impl Into<Vec<u8>>,
+        _owner: impl Into<Vec<u8>>,
         // total amount of the order
-        amnt: u64,
+        _amnt: u64,
         // iceberg quantity of the order
-        iqty: u64,
+        _iqty: u64,
         // timestamp of the order
-        timestamp: i64,
+        _timestamp: i64,
         // expiring timestamp of the order
-        expires_at: i64,
+        _expires_at: i64,
         // maker fee basis points of the order
-        maker_fee_bps: u16,
-        taker_fee_bps: u16,
-        time_in_force: TimeInForce,
+        _maker_fee_bps: u16,
+        _taker_fee_bps: u16,
+        _time_in_force: TimeInForce,
     ) -> Result<(), OrderBookError> {
         
         Ok(())
@@ -455,25 +452,25 @@ impl Pair {
     pub fn market_buy(
         &mut self,
         // gateway client id
-        cid: impl Into<Vec<u8>>,
+        _cid: impl Into<Vec<u8>>,
         // existing order id to update with the transaction if it exists
-        existing_order_id: Option<OrderId>, // None if new order
+        _existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
-        owner: impl Into<Vec<u8>>,
+        _owner: impl Into<Vec<u8>>,
         // total amount of the order
-        amnt: u64,
+        _amnt: u64,
         // iceberg quantity of the order
-        iqty: u64,
+        _iqty: u64,
         // timestamp of the order
-        timestamp: i64,
+        _timestamp: i64,
         // expiring timestamp of the order
-        expires_at: i64,
+        _expires_at: i64,
         // maker fee basis points of the order
-        maker_fee_bps: u16,
+        _maker_fee_bps: u16,
         // taker fee basis points of the order
-        taker_fee_bps: u16,
+        _taker_fee_bps: u16,
         // time in forcw
-        time_in_force: TimeInForce,
+        _time_in_force: TimeInForce,
     ) -> Result<(), OrderBookError> {
 
         Ok(())
@@ -481,14 +478,14 @@ impl Pair {
 
     pub fn cancel_order(
         &mut self,
-        cid: impl Into<Vec<u8>>,
-        pair_id: impl Into<Vec<u8>>,
-        is_bid: bool,
-        order_id: OrderId,
-        owner: impl Into<Vec<u8>>,
+        _cid: impl Into<Vec<u8>>,
+        _pair_id: impl Into<Vec<u8>>,
+        _is_bid: bool,
+        _order_id: OrderId,
+        _owner: impl Into<Vec<u8>>,
     ) -> Result<(), OrderBookError> {
         self.orderbook
-            .cancel_order(cid, pair_id, is_bid, order_id, owner)?;
+            .cancel_order(_cid, _pair_id, _is_bid, _order_id, _owner)?;
         Ok(())
     }
 }

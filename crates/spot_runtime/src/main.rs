@@ -111,9 +111,8 @@ fn main() -> anyhow::Result<()> {
             match metrics_event_receiver.recv_timeout(Duration::from_millis(100)) {
                 Ok(event) => {
                     match event.clone() {
+                        SpotEvent::SpotPairClientAccountChanged { .. } => {}
                         SpotEvent::SpotOrderPlaced { .. } => metrics_registry_for_events.orders_placed.inc(),
-                        SpotEvent::SpotOrderPartiallyMatched { .. } => metrics_registry_for_events.orders_partially_matched.inc(),
-                        SpotEvent::SpotOrderFullyMatched { .. } => metrics_registry_for_events.orders_fully_matched.inc(),
                         SpotEvent::SpotOrderPartiallyFilled { .. } => metrics_registry_for_events.orders_partially_filled.inc(),
                         SpotEvent::SpotOrderFullyFilled { .. } => metrics_registry_for_events.orders_fully_filled.inc(),
                         SpotEvent::SpotOrderCancelled { .. } => metrics_registry_for_events.orders_cancelled.inc(),

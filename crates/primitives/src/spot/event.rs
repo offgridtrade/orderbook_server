@@ -30,7 +30,8 @@ pub enum SpotEvent {
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
         /// pair id
-        pair_id: String,
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
         /// timestamp
         /// i64 is chosen because of js type compatibility
         timestamp: i64,

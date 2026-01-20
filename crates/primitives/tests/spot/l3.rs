@@ -228,8 +228,8 @@ fn decrease_order_pq_unchanged_when_pq_greater_than_cq() {
 
     // Verify pqty is capped to cqty (30)
     let order_after = storage.get_order(order_id).unwrap();
-    assert_eq!(order.pqty, 30);
-    assert_eq!(order.cqty, 30);
+    assert_eq!(order_after.pqty, 30);
+    assert_eq!(order_after.cqty, 30);
 }
 
 #[test]

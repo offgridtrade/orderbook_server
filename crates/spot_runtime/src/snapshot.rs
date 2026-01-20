@@ -119,7 +119,7 @@ pub fn spawn_snapshot_thread(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         println!("Snapshot thread started (interval: {}s, path: {})", interval_seconds, snapshot_path);
-        let interval = Duration::from_secs(interval_seconds);
+        let _interval = Duration::from_secs(interval_seconds);
         
         loop {
             // Wait for interval or shutdown signal
