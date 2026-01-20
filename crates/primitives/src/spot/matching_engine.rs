@@ -9,6 +9,22 @@ use super::orders::OrderId;
 use super::pair::Pair;
 use super::time_in_force::TimeInForce;
 
+/// Matching engine managing spot trading pairs and their orderbooks.
+///
+/// # Examples
+///
+/// Basic usage:
+///
+/// ```
+/// use offgrid_primitives::spot::MatchingEngine;
+///
+/// // Create a new matching engine
+/// let engine = MatchingEngine::new();
+///
+/// // By default there are no pairs
+/// assert_eq!(engine.pair_count(), 0);
+/// assert!(!engine.has_pair(&b"BTC-USD".to_vec()));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MatchingEngine {
     pairs: HashMap<Vec<u8>, Pair>,

@@ -14,6 +14,23 @@ use super::{
     L1, L2, L3,
 };
 
+/// In-memory order book for spot markets.
+///
+/// # Examples
+///
+/// Basic usage:
+///
+/// ```
+/// use offgrid_primitives::spot::orderbook::OrderBook;
+///
+/// // Create a new, empty orderbook
+/// let mut ob = OrderBook::new();
+/// assert_eq!(ob.lmp(), None);
+///
+/// // Set and read back the last matched price (LMP)
+/// ob.set_lmp(100);
+/// assert_eq!(ob.lmp(), Some(100));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OrderBook {
     // L1 state

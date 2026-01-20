@@ -309,6 +309,21 @@ impl EventQueue {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    /// Log all events in this queue using `println!`.
+    ///
+    /// This is primarily intended for debugging or tests. In production code,
+    /// prefer sending events to a structured logging backend.
+    pub fn log(&self, prefix: &str) {
+        if self.0.is_empty() {
+            println!("{prefix}[]");
+            return;
+        }
+
+        for (i, event) in self.0.iter().enumerate() {
+            println!("{prefix}[{i}]: {:?}", event);
+        }
+    }
 }
 
 impl Default for EventQueue {
