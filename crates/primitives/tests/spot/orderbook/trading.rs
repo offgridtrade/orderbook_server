@@ -3,9 +3,213 @@ use offgrid_primitives::spot::event::{self, SpotEvent};
 use offgrid_primitives::spot::orderbook::OrderBookError;
 use offgrid_primitives::spot::orders::Order;
 use ulid::Ulid;
+use super::EVENT_MUTEX;
+
+fn lock_events() -> std::sync::MutexGuard<'static, ()> {
+    EVENT_MUTEX.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn assert_order_filled(
+    events: &event::EventQueue,
+    expected_cid: Vec<u8>,
+    expected_order_id: Vec<u8>,
+    expected_maker_account_id: Vec<u8>,
+    expected_taker_account_id: Vec<u8>,
+    expected_is_bid: bool,
+    expected_price: u64,
+    expected_pair_id: Vec<u8>,
+    expected_base_asset_id: Vec<u8>,
+    expected_quote_asset_id: Vec<u8>,
+    expected_base_amount: u64,
+    expected_quote_amount: u64,
+    expected_base_fee: u64,
+    expected_quote_fee: u64,
+    expected_amnt: u64,
+    expected_iqty: u64,
+    expected_pqty: u64,
+    expected_cqty: u64,
+    expected_timestamp: i64,
+    expected_expires_at: i64,
+    allow_full: bool,
+) {
+    let matches_event = |e: &SpotEvent| matches!(
+        e,
+        SpotEvent::SpotOrderPartiallyFilled {
+            cid,
+            order_id,
+            maker_account_id,
+            taker_account_id,
+            is_bid,
+            price,
+            pair_id,
+            base_asset_id,
+            quote_asset_id,
+            base_amount,
+            quote_amount,
+            base_fee,
+            quote_fee,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            timestamp,
+            expires_at,
+        }
+            if cid == &expected_cid
+                && order_id == &expected_order_id
+                && maker_account_id == &expected_maker_account_id
+                && taker_account_id == &expected_taker_account_id
+                && *is_bid == expected_is_bid
+                && *price == expected_price
+                && pair_id == &expected_pair_id
+                && base_asset_id == &expected_base_asset_id
+                && quote_asset_id == &expected_quote_asset_id
+                && *base_amount == expected_base_amount
+                && *quote_amount == expected_quote_amount
+                && *base_fee == expected_base_fee
+                && *quote_fee == expected_quote_fee
+                && *amnt == expected_amnt
+                && *iqty == expected_iqty
+                && *pqty == expected_pqty
+                && *cqty == expected_cqty
+                && *timestamp == expected_timestamp
+                && *expires_at == expected_expires_at
+    );
+    let matches_full = |e: &SpotEvent| matches!(
+        e,
+        SpotEvent::SpotOrderFullyFilled {
+            cid,
+            order_id,
+            maker_account_id,
+            taker_account_id,
+            is_bid,
+            price,
+            pair_id,
+            base_asset_id,
+            quote_asset_id,
+            base_amount,
+            quote_amount,
+            base_fee,
+            quote_fee,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            timestamp,
+            expires_at,
+        }
+            if cid == &expected_cid
+                && order_id == &expected_order_id
+                && maker_account_id == &expected_maker_account_id
+                && taker_account_id == &expected_taker_account_id
+                && *is_bid == expected_is_bid
+                && *price == expected_price
+                && pair_id == &expected_pair_id
+                && base_asset_id == &expected_base_asset_id
+                && quote_asset_id == &expected_quote_asset_id
+                && *base_amount == expected_base_amount
+                && *quote_amount == expected_quote_amount
+                && *base_fee == expected_base_fee
+                && *quote_fee == expected_quote_fee
+                && *amnt == expected_amnt
+                && *iqty == expected_iqty
+                && *pqty == expected_pqty
+                && *cqty == expected_cqty
+                && *timestamp == expected_timestamp
+                && *expires_at == expected_expires_at
+    );
+
+    assert!(events.iter().any(|e| matches_event(e) || (allow_full && matches_full(e))));
+}
+
+fn assert_order_expired(
+    events: &event::EventQueue,
+    expected_cid: Vec<u8>,
+    expected_order_id: Vec<u8>,
+    expected_maker_account_id: Vec<u8>,
+    expected_is_bid: bool,
+    expected_price: u64,
+    expected_amnt: u64,
+    expected_iqty: u64,
+    expected_pqty: u64,
+    expected_cqty: u64,
+    expected_timestamp: i64,
+    expected_expires_at: i64,
+) {
+    assert!(events.iter().any(|e| matches!(
+        e,
+        SpotEvent::SpotOrderExpired {
+            cid,
+            order_id,
+            maker_account_id,
+            is_bid,
+            price,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            timestamp,
+            expires_at,
+        }
+            if cid == &expected_cid
+                && order_id == &expected_order_id
+                && maker_account_id == &expected_maker_account_id
+                && *is_bid == expected_is_bid
+                && *price == expected_price
+                && *amnt == expected_amnt
+                && *iqty == expected_iqty
+                && *pqty == expected_pqty
+                && *cqty == expected_cqty
+                && *timestamp == expected_timestamp
+                && *expires_at == expected_expires_at
+    )));
+}
+
+fn assert_order_expired_without_timestamp(
+    events: &event::EventQueue,
+    expected_cid: Vec<u8>,
+    expected_order_id: Vec<u8>,
+    expected_maker_account_id: Vec<u8>,
+    expected_is_bid: bool,
+    expected_price: u64,
+    expected_amnt: u64,
+    expected_iqty: u64,
+    expected_pqty: u64,
+    expected_cqty: u64,
+    expected_expires_at: i64,
+) {
+    assert!(events.iter().any(|e| matches!(
+        e,
+        SpotEvent::SpotOrderExpired {
+            cid,
+            order_id,
+            maker_account_id,
+            is_bid,
+            price,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            expires_at,
+            ..
+        }
+            if cid == &expected_cid
+                && order_id == &expected_order_id
+                && maker_account_id == &expected_maker_account_id
+                && *is_bid == expected_is_bid
+                && *price == expected_price
+                && *amnt == expected_amnt
+                && *iqty == expected_iqty
+                && *pqty == expected_pqty
+                && *cqty == expected_cqty
+                && *expires_at == expected_expires_at
+    )));
+}
+
 
 #[test]
 fn expired_order_on_pop_front_moves_to_next_price_level() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(110);
 
@@ -60,15 +264,24 @@ fn expired_order_on_pop_front_moves_to_next_price_level() {
     assert_eq!(orderbook.l2.bid_head(), None);
 
     let events = event::drain_events();
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::SpotOrderExpired { order_id, .. }
-            if order_id == &expired_id.to_bytes().to_vec()
-    )));
+    assert_order_expired_without_timestamp(
+        &events,
+        vec![1, 2, 3],
+        expired_id.to_bytes().to_vec(),
+        vec![10, 20],
+        true,
+        110,
+        1000,
+        500,
+        500,
+        1000,
+        0,
+    );
 }
 
 #[test]
 fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_expiration() {
+    let _guard = lock_events();
     println!("Starting test: execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level");
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(100);
@@ -149,12 +362,65 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     assert_eq!(ask_level_after, Some(200), "Ask level should reflect iceberg-adjusted quantity after execution");
     assert_eq!(bid_level_after, None, "Bid level should remain None as no order was placed at this price");
     println!("Test passed: ask price level correctly updated after execution");
+
+    let events = event::drain_events();
+    let base_amount = 300;
+    let quote_amount = (300 * 100) / 1_0000_0000;
+    let base_fee = base_amount * 25 / 10000;
+    let quote_fee = quote_amount * 25 / 10000;
+    assert_order_filled(
+        &events,
+        vec![9, 9, 9],
+        taker_order.id.to_bytes().to_vec(),
+        vec![7, 7, 7],
+        vec![10, 20],
+        false,
+        100,
+        vec![0],
+        vec![0],
+        vec![0],
+        base_amount,
+        quote_amount,
+        base_fee,
+        quote_fee,
+        300,
+        0,
+        300,
+        300,
+        0,
+        12345678900,
+        true,
+    );
+    assert_order_filled(
+        &events,
+        vec![1, 2, 3],
+        ask_order.id.to_bytes().to_vec(),
+        vec![10, 20],
+        vec![7, 7, 7],
+        false,
+        100,
+        vec![0],
+        vec![0],
+        vec![0],
+        base_amount,
+        quote_amount,
+        base_fee,
+        quote_fee,
+        500,
+        250,
+        250,
+        500,
+        0,
+        12345678900,
+        true,
+    );
 }
 
 // execute a trade from bid order to ask order and check if the bid price level is updated
 
 #[test]
 fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_expiration() {
+    let _guard = lock_events();
     println!("Starting test: execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level");
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(100);
@@ -240,28 +506,56 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         .expect("execute trade");
 
     let events = event::drain_events();
-
-    // Verify taker got a fill event
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::SpotOrderPartiallyFilled { cid, order_id, .. }
-            if *cid == taker_order.cid && *order_id == taker_order.id.to_bytes().to_vec()
-    ) || matches!(
-        e,
-        SpotEvent::SpotOrderFullyFilled { cid, order_id, .. }
-            if *cid == taker_order.cid && *order_id == taker_order.id.to_bytes().to_vec()
-    )));
-
-    // Verify maker (resting bid) also got a fill event
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::SpotOrderPartiallyFilled { cid, order_id, .. }
-            if *cid == bid_order.cid && *order_id == bid_order.id.to_bytes().to_vec()
-    ) || matches!(
-        e,
-        SpotEvent::SpotOrderFullyFilled { cid, order_id, .. }
-            if *cid == bid_order.cid && *order_id == bid_order.id.to_bytes().to_vec()
-    )));
+    let base_amount = (300 * 1_0000_0000) / 100;
+    let quote_amount = 300;
+    let base_fee = base_amount * 25 / 10000;
+    let quote_fee = quote_amount * 25 / 10000;
+    assert_order_filled(
+        &events,
+        vec![9, 9, 9],
+        taker_order.id.to_bytes().to_vec(),
+        vec![7, 7, 7],
+        vec![10, 20],
+        true,
+        100,
+        vec![0],
+        vec![0],
+        vec![0],
+        base_amount,
+        quote_amount,
+        base_fee,
+        quote_fee,
+        300,
+        0,
+        300,
+        300,
+        0,
+        i64::MAX,
+        true,
+    );
+    assert_order_filled(
+        &events,
+        vec![1, 2, 3],
+        bid_order.id.to_bytes().to_vec(),
+        vec![10, 20],
+        vec![7, 7, 7],
+        true,
+        100,
+        vec![0],
+        vec![0],
+        vec![0],
+        base_amount,
+        quote_amount,
+        base_fee,
+        quote_fee,
+        500,
+        250,
+        250,
+        500,
+        0,
+        i64::MAX,
+        true,
+    );
     
     let bid_level_after = orderbook.l2.public_bid_level(100);
     let ask_level_after = orderbook.l2.public_ask_level(100);
@@ -282,6 +576,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
 
 #[test]
 fn expired_order_on_execute_is_removed_and_emits_event() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(100);
 
@@ -332,11 +627,20 @@ fn expired_order_on_execute_is_removed_and_emits_event() {
     assert!(orderbook.l3.get_order(bid_order_id).is_err());
 
     let events = event::drain_events();
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::SpotOrderExpired { order_id, .. }
-            if order_id == &bid_order_id.to_bytes().to_vec()
-    )));
+    assert_order_expired(
+        &events,
+        vec![1, 2, 3],
+        bid_order_id.to_bytes().to_vec(),
+        vec![10, 20],
+        true,
+        100,
+        1000,
+        0,
+        1000,
+        1000,
+        1,
+        0,
+    );
 }
 
 
@@ -344,6 +648,7 @@ fn expired_order_on_execute_is_removed_and_emits_event() {
 
 #[test]
 fn expired_order_on_pop_front_skips_to_next() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(100);
 
@@ -381,11 +686,19 @@ fn expired_order_on_pop_front_skips_to_next() {
     assert!(orderbook.l3.get_order(expired_id).is_err());
 
     let events = event::drain_events();
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::SpotOrderExpired { order_id, .. }
-            if order_id == &expired_id.to_bytes().to_vec()
-    )));
+    assert_order_expired_without_timestamp(
+        &events,
+        vec![1, 2, 3],
+        expired_id.to_bytes().to_vec(),
+        vec![10, 20],
+        true,
+        100,
+        1000,
+        500,
+        500,
+        1000,
+        0,
+    );
 }
 
 // expired order on pop_front should move to next price level when the best price is emptied

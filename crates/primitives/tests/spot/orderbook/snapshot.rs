@@ -2,9 +2,16 @@ use offgrid_primitives::spot::event::{self, SpotEvent};
 use offgrid_primitives::spot::orderbook::OrderBook;
 use offgrid_primitives::spot::orders::Order;
 use ulid::Ulid;
+use super::EVENT_MUTEX;
+
+fn lock_events() -> std::sync::MutexGuard<'static, ()> {
+    EVENT_MUTEX.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 
 #[test]
 fn serialize_and_deserialize_orderbook_with_slippage_limits() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     
     // Set last matched price
@@ -37,6 +44,7 @@ fn serialize_and_deserialize_orderbook_with_slippage_limits() {
 
 #[test]
 fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     
     // Set last matched price
@@ -134,6 +142,7 @@ fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
 
 #[test]
 fn serialize_and_deserialize_empty_orderbook() {
+    let _guard = lock_events();
     // Test with default/empty OrderBook
     let orderbook = OrderBook::new();
 
@@ -150,6 +159,7 @@ fn serialize_and_deserialize_empty_orderbook() {
 
 #[test]
 fn place_bid_order_and_check_bid_price_level_without_expiration() {
+    let _guard = lock_events();
     println!("Starting test: place_bid_order_and_check_bid_price_level");
     let mut orderbook = OrderBook::new();
     orderbook.set_lmp(100);
@@ -183,6 +193,7 @@ fn place_bid_order_and_check_bid_price_level_without_expiration() {
 
 #[test]
 fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
+    let _guard = lock_events();
     let mut orderbook = OrderBook::new();
     
     // Set last matched price
