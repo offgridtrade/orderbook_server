@@ -4,5 +4,5 @@ mod l1;
 mod l2;
 #[path = "spot/l3.rs"]
 mod l3;
-#[path = "spot/orderbook.rs"]
+#[path = "spot/orderbook/mod.rs"]
 mod orderbook;
