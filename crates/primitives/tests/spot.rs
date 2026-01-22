@@ -6,3 +6,5 @@ mod l2;
 mod l3;
 #[path = "spot/orderbook/mod.rs"]
 mod orderbook;
+#[path = "spot/pair/mod.rs"]
+mod pair;
