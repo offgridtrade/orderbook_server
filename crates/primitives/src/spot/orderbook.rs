@@ -372,6 +372,9 @@ impl OrderBook {
         // emit the event for order matched
         let match_timestamp = now;
 
+        let taker_remaining_cqty = taker_order.cqty.saturating_sub(amount_to_send);
+        let taker_remaining_pqty = taker_order.pqty.min(taker_remaining_cqty);
+
         // emit event for both maker and taker
         let (remaining_cqty, remaining_pqty) = match self.l3.get_order(maker_order.id) {
             Ok(updated) => (updated.cqty, updated.pqty),
@@ -383,8 +386,10 @@ impl OrderBook {
         self._emit_taker_maker_match(
             taker_order.clone(),
             maker_order.clone(),
-            delta_cqty,
+            taker_remaining_cqty,
+            taker_remaining_pqty,
             remaining_cqty,
+            remaining_pqty,
             maker_order.price,
             pair_id_vec.clone(),
             base_asset_id_vec.clone(),
@@ -394,6 +399,7 @@ impl OrderBook {
             base_fee,
             quote_fee,
             match_timestamp,
+            taker_order.expires_at,
             maker_order.expires_at,
         )?;
 
@@ -488,7 +494,9 @@ impl OrderBook {
         taker_order: Order,
         maker_order: Order,
         taker_remaining_cqty: u64,
+        taker_remaining_pqty: u64,
         maker_remaining_cqty: u64,
+        maker_remaining_pqty: u64,
         price: u64,
         pair_id: impl Into<Vec<u8>>,
         base_asset_id: impl Into<Vec<u8>>,
@@ -498,7 +506,8 @@ impl OrderBook {
         base_fee: u64,
         quote_fee: u64,
         timestamp: i64,
-        expires_at: i64,
+        taker_expires_at: i64,
+        maker_expires_at: i64,
     ) -> Result<(), OrderBookError> {
         let pair_id_vec = pair_id.into();
         let base_asset_id_vec = base_asset_id.into();
@@ -509,30 +518,8 @@ impl OrderBook {
             event::emit_event(SpotEvent::SpotOrderPartiallyFilled {
                 cid: taker_order.cid.clone(),
                 order_id: taker_order.id.to_bytes().to_vec(),
-                maker_account_id: taker_order.owner.clone(),
-                taker_account_id: maker_order.owner.clone(),
-                is_bid: maker_order.is_bid,
-                price: taker_order.price,
-                pair_id: pair_id_vec.clone(),
-                base_asset_id: base_asset_id_vec.clone(),
-                quote_asset_id: quote_asset_id_vec.clone(),
-                base_amount: matching_base_amount,
-                quote_amount: matching_quote_amount,
-                base_fee: base_fee,
-                quote_fee: quote_fee,
-                amnt: taker_order.amnt,
-                iqty: taker_order.iqty,
-                pqty: taker_order.pqty,
-                cqty: taker_order.cqty,
-                timestamp: timestamp,
-                expires_at: expires_at,
-            });
-        } else {
-            event::emit_event(SpotEvent::SpotOrderFullyFilled {
-                cid: taker_order.cid.clone(),
-                order_id: taker_order.id.to_bytes().to_vec(),
-                maker_account_id: taker_order.owner.clone(),
-                taker_account_id: maker_order.owner.clone(),
+                maker_account_id: maker_order.owner.clone(),
+                taker_account_id: taker_order.owner.clone(),
                 is_bid: taker_order.is_bid,
                 price: taker_order.price,
                 pair_id: pair_id_vec.clone(),
@@ -544,10 +531,32 @@ impl OrderBook {
                 quote_fee: quote_fee,
                 amnt: taker_order.amnt,
                 iqty: taker_order.iqty,
-                pqty: taker_order.pqty,
-                cqty: taker_order.cqty,
+                pqty: taker_remaining_pqty,
+                cqty: taker_remaining_cqty,
                 timestamp: timestamp,
-                expires_at: expires_at,
+                expires_at: taker_expires_at,
+            });
+        } else {
+            event::emit_event(SpotEvent::SpotOrderFullyFilled {
+                cid: taker_order.cid.clone(),
+                order_id: taker_order.id.to_bytes().to_vec(),
+                maker_account_id: maker_order.owner.clone(),
+                taker_account_id: taker_order.owner.clone(),
+                is_bid: taker_order.is_bid,
+                price: taker_order.price,
+                pair_id: pair_id_vec.clone(),
+                base_asset_id: base_asset_id_vec.clone(),
+                quote_asset_id: quote_asset_id_vec.clone(),
+                base_amount: matching_base_amount,
+                quote_amount: matching_quote_amount,
+                base_fee: base_fee,
+                quote_fee: quote_fee,
+                amnt: taker_order.amnt,
+                iqty: taker_order.iqty,
+                pqty: taker_remaining_pqty,
+                cqty: taker_remaining_cqty,
+                timestamp: timestamp,
+                expires_at: taker_expires_at,
             });
         }
 
@@ -567,12 +576,12 @@ impl OrderBook {
                 quote_amount: matching_quote_amount,
                 base_fee: base_fee,
                 quote_fee: quote_fee,
-                amnt: taker_order.amnt,
-                iqty: taker_order.iqty,
-                pqty: taker_order.pqty,
-                cqty: taker_order.cqty,
+                amnt: maker_order.amnt,
+                iqty: maker_order.iqty,
+                pqty: maker_remaining_pqty,
+                cqty: maker_remaining_cqty,
                 timestamp: timestamp,
-                expires_at: expires_at,
+                expires_at: maker_expires_at,
             });
         } else {
             event::emit_event(SpotEvent::SpotOrderFullyFilled {
@@ -589,12 +598,12 @@ impl OrderBook {
                 quote_amount: matching_quote_amount,
                 base_fee: base_fee,
                 quote_fee: quote_fee,
-                amnt: taker_order.amnt,
-                iqty: taker_order.iqty,
-                pqty: taker_order.pqty,
-                cqty: taker_order.cqty,
+                amnt: maker_order.amnt,
+                iqty: maker_order.iqty,
+                pqty: maker_remaining_pqty,
+                cqty: maker_remaining_cqty,
                 timestamp: timestamp,
-                expires_at: expires_at,
+                expires_at: maker_expires_at,
             });
         }
 

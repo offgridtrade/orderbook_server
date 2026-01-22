@@ -206,6 +206,33 @@ fn assert_order_expired_without_timestamp(
     )));
 }
 
+fn assert_transfer_event(
+    events: &event::EventQueue,
+    expected_cid: Vec<u8>,
+    expected_from: Vec<u8>,
+    expected_to: Vec<u8>,
+    expected_asset: Vec<u8>,
+    expected_amnt: u64,
+    expected_timestamp: i64,
+) {
+    assert!(events.iter().any(|e| matches!(
+        e,
+        SpotEvent::Transfer {
+            cid,
+            from,
+            to,
+            asset,
+            amnt,
+            timestamp,
+        } if cid == &expected_cid
+            && from == &expected_from
+            && to == &expected_to
+            && asset == &expected_asset
+            && *amnt == expected_amnt
+            && *timestamp == expected_timestamp
+    )));
+}
+
 
 #[test]
 fn expired_order_on_pop_front_moves_to_next_price_level() {
@@ -372,9 +399,9 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         &events,
         vec![9, 9, 9],
         taker_order.id.to_bytes().to_vec(),
-        vec![7, 7, 7],
         vec![10, 20],
-        false,
+        vec![7, 7, 7],
+        true,
         100,
         vec![0],
         vec![0],
@@ -385,10 +412,10 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         quote_fee,
         300,
         0,
-        300,
-        300,
         0,
-        12345678900,
+        0,
+        0,
+        i64::MAX,
         true,
     );
     assert_order_filled(
@@ -408,11 +435,47 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         quote_fee,
         500,
         250,
-        250,
-        500,
+        200,
+        200,
         0,
         12345678900,
         true,
+    );
+    assert_transfer_event(
+        &events,
+        vec![9, 9, 9],
+        vec![7, 7, 7],
+        vec![10, 20],
+        vec![0],
+        base_amount,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![1, 2, 3],
+        vec![10, 20],
+        vec![7, 7, 7],
+        vec![0],
+        quote_amount,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![1, 2, 3],
+        vec![10, 20],
+        b"ask_admin".to_vec(),
+        vec![0],
+        base_fee,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![9, 9, 9],
+        vec![7, 7, 7],
+        b"taker_admin".to_vec(),
+        vec![0],
+        quote_fee,
+        0,
     );
 }
 
@@ -514,8 +577,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         &events,
         vec![9, 9, 9],
         taker_order.id.to_bytes().to_vec(),
-        vec![7, 7, 7],
         vec![10, 20],
+        vec![7, 7, 7],
         true,
         100,
         vec![0],
@@ -527,8 +590,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         quote_fee,
         300,
         0,
-        300,
-        300,
+        0,
+        0,
         0,
         i64::MAX,
         true,
@@ -550,11 +613,47 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         quote_fee,
         500,
         250,
-        250,
-        500,
+        200,
+        200,
         0,
         i64::MAX,
         true,
+    );
+    assert_transfer_event(
+        &events,
+        vec![9, 9, 9],
+        vec![7, 7, 7],
+        vec![10, 20],
+        vec![0],
+        base_amount,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![1, 2, 3],
+        vec![10, 20],
+        vec![7, 7, 7],
+        vec![0],
+        quote_amount,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![9, 9, 9],
+        vec![7, 7, 7],
+        b"taker_admin".to_vec(),
+        vec![0],
+        base_fee,
+        0,
+    );
+    assert_transfer_event(
+        &events,
+        vec![1, 2, 3],
+        vec![10, 20],
+        b"bid_admin".to_vec(),
+        vec![0],
+        quote_fee,
+        0,
     );
     
     let bid_level_after = orderbook.l2.public_bid_level(100);
