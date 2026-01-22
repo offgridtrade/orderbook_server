@@ -11,6 +11,7 @@ fn lock_events() -> std::sync::MutexGuard<'static, ()> {
 
 fn assert_order_filled(
     events: &event::EventQueue,
+    expected_is_taker_event: bool,
     expected_taker_cid: Vec<u8>,
     expected_maker_cid: Vec<u8>,
     expected_taker_order_id: Vec<u8>,
@@ -40,6 +41,7 @@ fn assert_order_filled(
     let matches_event = |e: &SpotEvent| matches!(
         e,
         SpotEvent::SpotOrderPartiallyFilled {
+            is_taker_event,
             taker_cid,
             maker_cid,
             taker_order_id,
@@ -65,7 +67,8 @@ fn assert_order_filled(
             timestamp,
             expires_at,
         }
-            if taker_cid == &expected_taker_cid
+            if *is_taker_event == expected_is_taker_event
+                && taker_cid == &expected_taker_cid
                 && maker_cid == &expected_maker_cid
                 && taker_order_id == &expected_taker_order_id
                 && maker_order_id == &expected_maker_order_id
@@ -93,6 +96,7 @@ fn assert_order_filled(
     let matches_full = |e: &SpotEvent| matches!(
         e,
         SpotEvent::SpotOrderFullyFilled {
+            is_taker_event,
             taker_cid,
             maker_cid,
             taker_order_id,
@@ -118,7 +122,8 @@ fn assert_order_filled(
             timestamp,
             expires_at,
         }
-            if taker_cid == &expected_taker_cid
+            if *is_taker_event == expected_is_taker_event
+                && taker_cid == &expected_taker_cid
                 && maker_cid == &expected_maker_cid
                 && taker_order_id == &expected_taker_order_id
                 && maker_order_id == &expected_maker_order_id
@@ -230,34 +235,6 @@ fn assert_order_expired_without_timestamp(
                 && *expires_at == expected_expires_at
     )));
 }
-
-fn assert_transfer_event(
-    events: &event::EventQueue,
-    expected_cid: Vec<u8>,
-    expected_from: Vec<u8>,
-    expected_to: Vec<u8>,
-    expected_asset: Vec<u8>,
-    expected_amnt: u64,
-    expected_timestamp: i64,
-) {
-    assert!(events.iter().any(|e| matches!(
-        e,
-        SpotEvent::Transfer {
-            cid,
-            from,
-            to,
-            asset,
-            amnt,
-            timestamp,
-        } if cid == &expected_cid
-            && from == &expected_from
-            && to == &expected_to
-            && asset == &expected_asset
-            && *amnt == expected_amnt
-            && *timestamp == expected_timestamp
-    )));
-}
-
 
 #[test]
 fn expired_order_on_pop_front_moves_to_next_price_level() {
@@ -440,6 +417,7 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     );
     assert_order_filled(
         &events,
+        true,
         vec![9, 9, 9],
         vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
@@ -468,6 +446,7 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     );
     assert_order_filled(
         &events,
+        false,
         vec![9, 9, 9],
         vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
@@ -493,42 +472,6 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         0,
         12345678900,
         true,
-    );
-    assert_transfer_event(
-        &events,
-        vec![9, 9, 9],
-        vec![7, 7, 7],
-        vec![10, 20],
-        vec![0],
-        base_amount,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![1, 2, 3],
-        vec![10, 20],
-        vec![7, 7, 7],
-        vec![0],
-        quote_amount,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![1, 2, 3],
-        vec![10, 20],
-        b"ask_admin".to_vec(),
-        vec![0],
-        base_fee,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![9, 9, 9],
-        vec![7, 7, 7],
-        b"taker_admin".to_vec(),
-        vec![0],
-        quote_fee,
-        0,
     );
 }
 
@@ -636,6 +579,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     let quote_fee = quote_amount * 25 / 10000;
     assert_order_filled(
         &events,
+        true,
         vec![9, 9, 9],
         vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
@@ -664,6 +608,7 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     );
     assert_order_filled(
         &events,
+        false,
         vec![9, 9, 9],
         vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
@@ -689,42 +634,6 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         0,
         i64::MAX,
         true,
-    );
-    assert_transfer_event(
-        &events,
-        vec![1, 2, 3],
-        vec![10, 20],
-        vec![7, 7, 7],
-        vec![0],
-        base_amount,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![9, 9, 9],
-        vec![7, 7, 7],
-        vec![10, 20],
-        vec![0],
-        quote_amount,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![9, 9, 9],
-        vec![7, 7, 7],
-        b"taker_admin".to_vec(),
-        vec![0],
-        base_fee,
-        0,
-    );
-    assert_transfer_event(
-        &events,
-        vec![1, 2, 3],
-        vec![10, 20],
-        b"bid_admin".to_vec(),
-        vec![0],
-        quote_fee,
-        0,
     );
     
     let bid_level_after = orderbook.l2.public_bid_level(100);

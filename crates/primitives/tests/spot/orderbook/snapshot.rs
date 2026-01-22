@@ -296,19 +296,25 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     assert!(events.iter().any(|e| matches!(
         e,
         SpotEvent::SpotOrderFullyFilled {
+            is_taker_event,
             taker_cid,
             maker_cid,
             taker_order_id,
             maker_order_id,
+            maker_fee_bps,
+            taker_fee_bps,
             amnt,
             iqty,
             pqty,
             cqty,
             ..
-        } if taker_cid == &taker_order.cid
+        } if *is_taker_event
+            && taker_cid == &taker_order.cid
             && maker_cid == &ask_order.cid
             && taker_order_id == &taker_order.id.to_bytes().to_vec()
             && maker_order_id == &ask_order.id.to_bytes().to_vec()
+            && *maker_fee_bps == ask_order.fee_bps
+            && *taker_fee_bps == taker_order.fee_bps
             && *amnt == taker_order.amnt
             && *iqty == taker_order.iqty
             && *pqty == 0
@@ -318,19 +324,25 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     assert!(events.iter().any(|e| matches!(
         e,
         SpotEvent::SpotOrderPartiallyFilled {
+            is_taker_event,
             taker_cid,
             maker_cid,
             taker_order_id,
             maker_order_id,
+            maker_fee_bps,
+            taker_fee_bps,
             amnt,
             iqty,
             pqty,
             cqty,
             ..
-        } if taker_cid == &taker_order.cid
+        } if !*is_taker_event
+            && taker_cid == &taker_order.cid
             && maker_cid == &ask_order.cid
             && taker_order_id == &taker_order.id.to_bytes().to_vec()
             && maker_order_id == &ask_order.id.to_bytes().to_vec()
+            && *maker_fee_bps == ask_order.fee_bps
+            && *taker_fee_bps == taker_order.fee_bps
             && *amnt == ask_order.amnt
             && *iqty == ask_order.iqty
             && *pqty == 200

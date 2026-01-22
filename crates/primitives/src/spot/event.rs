@@ -110,6 +110,8 @@ pub enum SpotEvent {
     },
     /// Spot order partially filled in the orderbook being a taker for taker spot order history
     SpotOrderPartiallyFilled { 
+        /// whether the event is for a taker order
+        is_taker_event: bool,
         /// taker client id
         #[serde(with = "serde_bytes")]
         taker_cid: Vec<u8>,
@@ -170,6 +172,8 @@ pub enum SpotEvent {
     },
     /// Spot order fully filled in the orderbook being a taker for taker spot order history
     SpotOrderFullyFilled { 
+        /// whether the event is for a taker order
+        is_taker_event: bool,
         /// taker client id
         #[serde(with = "serde_bytes")]
         taker_cid: Vec<u8>,
