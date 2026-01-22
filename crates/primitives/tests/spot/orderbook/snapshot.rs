@@ -55,6 +55,8 @@ fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
     let bid_order_1 = orderbook.place_bid(
         vec![1, 2, 3],
         vec![0],
+        vec![0],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -67,6 +69,8 @@ fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
     
     let bid_order_2 = orderbook.place_bid(
         vec![4, 5, 6],
+        vec![0],
+        vec![0],
         vec![0],
         vec![30, 40],
         95,
@@ -82,6 +86,8 @@ fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
     let ask_order_1 = orderbook.place_ask(
         vec![7, 8, 9],
         vec![0],
+        vec![0],
+        vec![0],
         vec![50, 60],
         110,
         1500,
@@ -94,6 +100,8 @@ fn serialize_and_deserialize_orderbook_with_orders_without_expiration() {
     
     let ask_order_2 = orderbook.place_ask(
         vec![10, 11, 12],
+        vec![0],
+        vec![0],
         vec![0],
         vec![70, 80],
         115,
@@ -172,6 +180,8 @@ fn place_bid_order_and_check_bid_price_level_without_expiration() {
     let bid_order = orderbook.place_bid(
         vec![1, 2, 3],
         vec![0],
+        vec![0],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -204,6 +214,8 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     let bid_order = orderbook.place_bid(
         vec![1, 2, 3],
         vec![0],
+        vec![0],
+        vec![0],
         vec![10, 20],
         100,
         1000,
@@ -217,6 +229,8 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     // Place an ask order
     let ask_order = orderbook.place_ask(
         vec![4, 5, 6],
+        vec![0],
+        vec![0],
         vec![0],
         vec![30, 40],
         100,
@@ -233,9 +247,11 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
 
     // Dummy taker order (incoming bid) that will hit the resting ask
     let taker_order = Order::new(
-        vec![9, 9, 9],    // cid
+        vec![9, 9, 9],
+        // cid
         Ulid::new(),      // id
-        vec![7, 7, 7],    // owner
+        vec![7, 7, 7],
+        // owner
         true,             // is_bid
         100,              // price
         300,              // amnt
@@ -261,12 +277,14 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     // Execute a trade (decreases the ask order) – rely on events + book state
     orderbook
         .execute(
-            false,            // taker is ask? – here we treat taker as bid hitting the ask
             taker_order.clone(),
             ask_order.clone(),
-            vec![0],          // pair_id
-            vec![0],          // base_asset_id
-            vec![0],          // quote_asset_id
+            vec![0],
+            // pair_id
+            vec![0],
+            // base_asset_id
+            vec![0],
+            // quote_asset_id
             300,              // Execute 300 out of 500
             false,            // clear: false (partial fill)
             1234567892,
@@ -274,17 +292,49 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
         .expect("execute trade");
 
     let events = event::drain_events();
-    // Taker got a fill
+    // Taker got a fill (fully filled on exact match)
     assert!(events.iter().any(|e| matches!(
         e,
-        SpotEvent::SpotOrderPartiallyFilled { cid, order_id, .. }
-            if *cid == taker_order.cid && *order_id == taker_order.id.to_bytes().to_vec()
+        SpotEvent::SpotOrderFullyFilled {
+            taker_cid,
+            maker_cid,
+            taker_order_id,
+            maker_order_id,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            ..
+        } if taker_cid == &taker_order.cid
+            && maker_cid == &ask_order.cid
+            && taker_order_id == &taker_order.id.to_bytes().to_vec()
+            && maker_order_id == &ask_order.id.to_bytes().to_vec()
+            && *amnt == taker_order.amnt
+            && *iqty == taker_order.iqty
+            && *pqty == 0
+            && *cqty == 0
     )));
     // Maker ask got a fill
     assert!(events.iter().any(|e| matches!(
         e,
-        SpotEvent::SpotOrderPartiallyFilled { cid, order_id, .. }
-            if *cid == ask_order.cid && *order_id == ask_order.id.to_bytes().to_vec()
+        SpotEvent::SpotOrderPartiallyFilled {
+            taker_cid,
+            maker_cid,
+            taker_order_id,
+            maker_order_id,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            ..
+        } if taker_cid == &taker_order.cid
+            && maker_cid == &ask_order.cid
+            && taker_order_id == &taker_order.id.to_bytes().to_vec()
+            && maker_order_id == &ask_order.id.to_bytes().to_vec()
+            && *amnt == ask_order.amnt
+            && *iqty == ask_order.iqty
+            && *pqty == 200
+            && *cqty == 200
     )));
     
     // Serialize to binary format after execution

@@ -76,13 +76,22 @@ pub enum SpotEvent {
         /// client id
         #[serde(with = "serde_bytes")]
         cid: Vec<u8>,
+        /// pair id
+        #[serde(with = "serde_bytes")]
+        pair_id: Vec<u8>,
+        /// base asset id
+        #[serde(with = "serde_bytes")]
+        base_asset_id: Vec<u8>,
+        /// quote asset id
+        #[serde(with = "serde_bytes")]
+        quote_asset_id: Vec<u8>,
         /// order id
         #[serde(with = "serde_bytes")]
         order_id: Vec<u8>, 
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
-        /// is bid
+        /// maker order is bid
         is_bid: bool, 
         /// price
         price: u64, 
@@ -101,20 +110,28 @@ pub enum SpotEvent {
     },
     /// Spot order partially filled in the orderbook being a taker for taker spot order history
     SpotOrderPartiallyFilled { 
-        /// client id
+        /// taker client id
         #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
-        /// order id
+        taker_cid: Vec<u8>,
+        /// maker client id
         #[serde(with = "serde_bytes")]
-        order_id: Vec<u8>,
+        maker_cid: Vec<u8>,
+        /// taker order id
+        #[serde(with = "serde_bytes")]
+        taker_order_id: Vec<u8>,
+        /// maker order id
+        #[serde(with = "serde_bytes")]
+        maker_order_id: Vec<u8>,
         /// maker account id
         #[serde(with = "serde_bytes")]
-        maker_account_id: Vec<u8>, 
+        taker_account_id: Vec<u8>, 
         /// taker account id
         #[serde(with = "serde_bytes")]
-        taker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
+        maker_account_id: Vec<u8>, 
+        /// taker order is bid
+        taker_order_is_bid: bool, 
+        /// maker order is bid
+        maker_order_is_bid: bool, 
         /// price
         price: u64, 
         /// pair id
@@ -126,14 +143,18 @@ pub enum SpotEvent {
         /// quote asset id
         #[serde(with = "serde_bytes")]
         quote_asset_id: Vec<u8>,
-        /// base amount
-        base_amount: u64,
-        /// quote amount
-        quote_amount: u64,
+        /// base volume
+        base_volume: u64,
+        /// quote volume
+        quote_volume: u64,
         /// base fee
         base_fee: u64,
         /// quote fee
         quote_fee: u64,
+        /// maker fee bps
+        maker_fee_bps: u16,
+        /// taker fee bps
+        taker_fee_bps: u16,
         /// whole amount
         amnt: u64,
         /// iceberg quantity
@@ -149,20 +170,28 @@ pub enum SpotEvent {
     },
     /// Spot order fully filled in the orderbook being a taker for taker spot order history
     SpotOrderFullyFilled { 
-        /// client id
+        /// taker client id
         #[serde(with = "serde_bytes")]
-        cid: Vec<u8>,
-        /// order id
+        taker_cid: Vec<u8>,
+        /// maker client id
         #[serde(with = "serde_bytes")]
-        order_id: Vec<u8>,
+        maker_cid: Vec<u8>,
+        /// taker order id
+        #[serde(with = "serde_bytes")]
+        taker_order_id: Vec<u8>,
+        /// maker order id
+        #[serde(with = "serde_bytes")]
+        maker_order_id: Vec<u8>,
         /// maker account id
         #[serde(with = "serde_bytes")]
         maker_account_id: Vec<u8>, 
         /// taker account id
         #[serde(with = "serde_bytes")]
         taker_account_id: Vec<u8>, 
-        /// is bid
-        is_bid: bool, 
+        /// taker order is bid
+        taker_order_is_bid: bool, 
+        /// maker order is bid
+        maker_order_is_bid: bool, 
         /// price
         price: u64, 
         /// pair id
@@ -174,14 +203,18 @@ pub enum SpotEvent {
         /// quote asset id
         #[serde(with = "serde_bytes")]
         quote_asset_id: Vec<u8>,
-        /// base amount
-        base_amount: u64,
-        /// quote amount
-        quote_amount: u64,
+        /// base volume 
+        base_volume: u64,
+        /// quote volume
+        quote_volume: u64,
         /// base fee
         base_fee: u64,
         /// quote fee
         quote_fee: u64,
+        /// maker fee bps
+        maker_fee_bps: u16,
+        /// taker fee bps
+        taker_fee_bps: u16,
         /// whole amount
         amnt: u64,
         /// iceberg quantity

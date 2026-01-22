@@ -339,6 +339,8 @@ impl Pair {
         let taker_order = self.orderbook.place_ask(
             cid_vec.clone(),
             self.pair_id.clone(),
+            self.base_asset_id.clone(),
+            self.quote_asset_id.clone(),
             owner_vec.clone(),
             price,
             amnt,

@@ -11,19 +11,24 @@ fn lock_events() -> std::sync::MutexGuard<'static, ()> {
 
 fn assert_order_filled(
     events: &event::EventQueue,
-    expected_cid: Vec<u8>,
-    expected_order_id: Vec<u8>,
-    expected_maker_account_id: Vec<u8>,
+    expected_taker_cid: Vec<u8>,
+    expected_maker_cid: Vec<u8>,
+    expected_taker_order_id: Vec<u8>,
+    expected_maker_order_id: Vec<u8>,
     expected_taker_account_id: Vec<u8>,
-    expected_is_bid: bool,
+    expected_maker_account_id: Vec<u8>,
+    expected_taker_is_bid: bool,
+    expected_maker_is_bid: bool,
     expected_price: u64,
     expected_pair_id: Vec<u8>,
     expected_base_asset_id: Vec<u8>,
     expected_quote_asset_id: Vec<u8>,
-    expected_base_amount: u64,
-    expected_quote_amount: u64,
+    expected_base_volume: u64,
+    expected_quote_volume: u64,
     expected_base_fee: u64,
     expected_quote_fee: u64,
+    expected_maker_fee_bps: u16,
+    expected_taker_fee_bps: u16,
     expected_amnt: u64,
     expected_iqty: u64,
     expected_pqty: u64,
@@ -35,19 +40,24 @@ fn assert_order_filled(
     let matches_event = |e: &SpotEvent| matches!(
         e,
         SpotEvent::SpotOrderPartiallyFilled {
-            cid,
-            order_id,
-            maker_account_id,
+            taker_cid,
+            maker_cid,
+            taker_order_id,
+            maker_order_id,
             taker_account_id,
-            is_bid,
+            maker_account_id,
+            taker_order_is_bid,
+            maker_order_is_bid,
             price,
             pair_id,
             base_asset_id,
             quote_asset_id,
-            base_amount,
-            quote_amount,
+            base_volume,
+            quote_volume,
             base_fee,
             quote_fee,
+            maker_fee_bps,
+            taker_fee_bps,
             amnt,
             iqty,
             pqty,
@@ -55,19 +65,24 @@ fn assert_order_filled(
             timestamp,
             expires_at,
         }
-            if cid == &expected_cid
-                && order_id == &expected_order_id
-                && maker_account_id == &expected_maker_account_id
+            if taker_cid == &expected_taker_cid
+                && maker_cid == &expected_maker_cid
+                && taker_order_id == &expected_taker_order_id
+                && maker_order_id == &expected_maker_order_id
                 && taker_account_id == &expected_taker_account_id
-                && *is_bid == expected_is_bid
+                && maker_account_id == &expected_maker_account_id
+                && *taker_order_is_bid == expected_taker_is_bid
+                && *maker_order_is_bid == expected_maker_is_bid
                 && *price == expected_price
                 && pair_id == &expected_pair_id
                 && base_asset_id == &expected_base_asset_id
                 && quote_asset_id == &expected_quote_asset_id
-                && *base_amount == expected_base_amount
-                && *quote_amount == expected_quote_amount
+                && *base_volume == expected_base_volume
+                && *quote_volume == expected_quote_volume
                 && *base_fee == expected_base_fee
                 && *quote_fee == expected_quote_fee
+                && *maker_fee_bps == expected_maker_fee_bps
+                && *taker_fee_bps == expected_taker_fee_bps
                 && *amnt == expected_amnt
                 && *iqty == expected_iqty
                 && *pqty == expected_pqty
@@ -78,19 +93,24 @@ fn assert_order_filled(
     let matches_full = |e: &SpotEvent| matches!(
         e,
         SpotEvent::SpotOrderFullyFilled {
-            cid,
-            order_id,
-            maker_account_id,
+            taker_cid,
+            maker_cid,
+            taker_order_id,
+            maker_order_id,
             taker_account_id,
-            is_bid,
+            maker_account_id,
+            taker_order_is_bid,
+            maker_order_is_bid,
             price,
             pair_id,
             base_asset_id,
             quote_asset_id,
-            base_amount,
-            quote_amount,
+            base_volume,
+            quote_volume,
             base_fee,
             quote_fee,
+            maker_fee_bps,
+            taker_fee_bps,
             amnt,
             iqty,
             pqty,
@@ -98,19 +118,24 @@ fn assert_order_filled(
             timestamp,
             expires_at,
         }
-            if cid == &expected_cid
-                && order_id == &expected_order_id
-                && maker_account_id == &expected_maker_account_id
+            if taker_cid == &expected_taker_cid
+                && maker_cid == &expected_maker_cid
+                && taker_order_id == &expected_taker_order_id
+                && maker_order_id == &expected_maker_order_id
                 && taker_account_id == &expected_taker_account_id
-                && *is_bid == expected_is_bid
+                && maker_account_id == &expected_maker_account_id
+                && *taker_order_is_bid == expected_taker_is_bid
+                && *maker_order_is_bid == expected_maker_is_bid
                 && *price == expected_price
                 && pair_id == &expected_pair_id
                 && base_asset_id == &expected_base_asset_id
                 && quote_asset_id == &expected_quote_asset_id
-                && *base_amount == expected_base_amount
-                && *quote_amount == expected_quote_amount
+                && *base_volume == expected_base_volume
+                && *quote_volume == expected_quote_volume
                 && *base_fee == expected_base_fee
                 && *quote_fee == expected_quote_fee
+                && *maker_fee_bps == expected_maker_fee_bps
+                && *taker_fee_bps == expected_taker_fee_bps
                 && *amnt == expected_amnt
                 && *iqty == expected_iqty
                 && *pqty == expected_pqty
@@ -244,6 +269,8 @@ fn expired_order_on_pop_front_moves_to_next_price_level() {
         .place_bid(
             vec![1, 2, 3],
             vec![0],
+            vec![0],
+            vec![0],
             vec![10, 20],
             110, // best bid price
             1000,
@@ -257,6 +284,8 @@ fn expired_order_on_pop_front_moves_to_next_price_level() {
     let active_order = orderbook
         .place_bid(
             vec![4, 5, 6],
+            vec![0],
+            vec![0],
             vec![0],
             vec![30, 40],
             100, // next best bid price
@@ -318,6 +347,8 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     let ask_order = orderbook.place_ask(
         vec![1, 2, 3],
         vec![0],
+        vec![0],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -338,12 +369,14 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     // Clear any previous events
     let _ = event::drain_events();
 
-    // Dummy taker bid order that will hit the resting ask
+    // Dummy taker ask order that will hit the resting ask
     let taker_order = Order::new(
-        vec![9, 9, 9],    // cid
+        vec![9, 9, 9],
+        // cid
         Ulid::new(),      // id
-        vec![7, 7, 7],    // owner
-        true,             // is_bid (bid taker)
+        vec![7, 7, 7],
+        // owner
+        false,            // is_bid (ask taker)
         100,              // price
         300,              // amnt
         0,                // iqty
@@ -365,12 +398,14 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     // Execute the trade
     orderbook
         .execute(
-            false,                // update ask side in L2
             taker_order.clone(),  // taker
             ask_order.clone(),    // maker (resting ask)
-            vec![0],              // pair_id
-            vec![0],              // base_asset_id
-            vec![0],              // quote_asset_id
+            vec![0],
+            // pair_id
+            vec![0],
+            // base_asset_id
+            vec![0],
+            // quote_asset_id
             300,                  // Execute 300 out of 500
             false,                // clear: partial fill
             0,                    // now
@@ -392,16 +427,27 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
 
     let events = event::drain_events();
     let base_amount = 300;
-    let quote_amount = (300 * 100) / 1_0000_0000;
+    let quote_amount = 30000;
     let base_fee = base_amount * 25 / 10000;
     let quote_fee = quote_amount * 25 / 10000;
+    println!(
+        "Transfer plan: base {} from taker to maker; quote {} from maker to taker",
+        base_amount, quote_amount
+    );
+    println!(
+        "Taker owner {:?} -> maker owner {:?} (base), maker owner {:?} -> taker owner {:?} (quote)",
+        taker_order.owner, ask_order.owner, ask_order.owner, taker_order.owner
+    );
     assert_order_filled(
         &events,
         vec![9, 9, 9],
+        vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
-        vec![10, 20],
+        ask_order.id.to_bytes().to_vec(),
         vec![7, 7, 7],
-        true,
+        vec![10, 20],
+        false,
+        false,
         100,
         vec![0],
         vec![0],
@@ -410,6 +456,8 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         quote_amount,
         base_fee,
         quote_fee,
+        ask_order.fee_bps,
+        taker_order.fee_bps,
         300,
         0,
         0,
@@ -420,10 +468,13 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
     );
     assert_order_filled(
         &events,
+        vec![9, 9, 9],
         vec![1, 2, 3],
+        taker_order.id.to_bytes().to_vec(),
         ask_order.id.to_bytes().to_vec(),
-        vec![10, 20],
         vec![7, 7, 7],
+        vec![10, 20],
+        false,
         false,
         100,
         vec![0],
@@ -433,6 +484,8 @@ fn execute_trade_from_ask_order_to_bid_order_and_check_ask_price_level_without_e
         quote_amount,
         base_fee,
         quote_fee,
+        ask_order.fee_bps,
+        taker_order.fee_bps,
         500,
         250,
         200,
@@ -494,6 +547,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     let bid_order = orderbook.place_bid(
         vec![1, 2, 3],
         vec![0],
+        vec![0],
+        vec![0],
         vec![10, 20],
         100,
         500,
@@ -507,6 +562,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     
     let ask_order = orderbook.place_ask(
         vec![1, 2, 3],
+        vec![0],
+        vec![0],
         vec![0],
         vec![10, 20],
         100,
@@ -531,9 +588,11 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
 
     // Dummy taker order (not stored in L3) representing an incoming bid
     let taker_order = Order::new(
-        vec![9, 9, 9],       // cid
+        vec![9, 9, 9],
+        // cid
         Ulid::new(),         // id
-        vec![7, 7, 7],       // owner
+        vec![7, 7, 7],
+        // owner
         true,                // is_bid
         100,                 // price
         300,                 // amnt (we'll execute 300)
@@ -556,12 +615,14 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     // Execute the trade via events (no OrderMatch return any more)
     orderbook
         .execute(
-            true,               // is_bid: true (bid taker)
             taker_order.clone(),
             bid_order.clone(),  // maker on the book
-            vec![0],            // pair_id
-            vec![0],            // base_asset_id
-            vec![0],            // quote_asset_id
+            vec![0],
+            // pair_id
+            vec![0],
+            // base_asset_id
+            vec![0],
+            // quote_asset_id
             300,                // amount to execute
             false,              // clear: partial fill
             0,                  // now
@@ -569,16 +630,19 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         .expect("execute trade");
 
     let events = event::drain_events();
-    let base_amount = (300 * 1_0000_0000) / 100;
+    let base_amount = 3;
     let quote_amount = 300;
     let base_fee = base_amount * 25 / 10000;
     let quote_fee = quote_amount * 25 / 10000;
     assert_order_filled(
         &events,
         vec![9, 9, 9],
+        vec![1, 2, 3],
         taker_order.id.to_bytes().to_vec(),
-        vec![10, 20],
+        bid_order.id.to_bytes().to_vec(),
         vec![7, 7, 7],
+        vec![10, 20],
+        true,
         true,
         100,
         vec![0],
@@ -588,6 +652,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         quote_amount,
         base_fee,
         quote_fee,
+        bid_order.fee_bps,
+        taker_order.fee_bps,
         300,
         0,
         0,
@@ -598,10 +664,13 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     );
     assert_order_filled(
         &events,
+        vec![9, 9, 9],
         vec![1, 2, 3],
+        taker_order.id.to_bytes().to_vec(),
         bid_order.id.to_bytes().to_vec(),
-        vec![10, 20],
         vec![7, 7, 7],
+        vec![10, 20],
+        true,
         true,
         100,
         vec![0],
@@ -611,6 +680,8 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
         quote_amount,
         base_fee,
         quote_fee,
+        bid_order.fee_bps,
+        taker_order.fee_bps,
         500,
         250,
         200,
@@ -621,18 +692,18 @@ fn execute_trade_from_bid_order_to_ask_order_and_check_bid_price_level_without_e
     );
     assert_transfer_event(
         &events,
-        vec![9, 9, 9],
-        vec![7, 7, 7],
+        vec![1, 2, 3],
         vec![10, 20],
+        vec![7, 7, 7],
         vec![0],
         base_amount,
         0,
     );
     assert_transfer_event(
         &events,
-        vec![1, 2, 3],
-        vec![10, 20],
+        vec![9, 9, 9],
         vec![7, 7, 7],
+        vec![10, 20],
         vec![0],
         quote_amount,
         0,
@@ -684,6 +755,8 @@ fn expired_order_on_execute_is_removed_and_emits_event() {
         .place_bid(
             vec![1, 2, 3],
             vec![0],
+            vec![0],
+            vec![0],
             vec![10, 20],
             100,
             1000,
@@ -697,10 +770,12 @@ fn expired_order_on_execute_is_removed_and_emits_event() {
 
     // Dummy taker order (not stored in L3)
     let taker_order = Order::new(
-        vec![9, 9, 9],           // cid
+        vec![9, 9, 9],
+        // cid
         Ulid::new(),            // id
-        vec![7, 7, 7],          // owner
-        true,                   // is_bid
+        vec![7, 7, 7],
+        // owner
+        false,                  // is_bid
         100,                    // price
         1000,                   // amnt
         0,                      // iqty
@@ -712,7 +787,6 @@ fn expired_order_on_execute_is_removed_and_emits_event() {
     );
 
     let result = orderbook.execute(
-        true,
         taker_order,
         bid_order,
         vec![0],
@@ -755,6 +829,8 @@ fn expired_order_on_pop_front_skips_to_next() {
         .place_bid(
             vec![1, 2, 3],
             vec![0],
+            vec![0],
+            vec![0],
             vec![10, 20],
             100,
             1000,
@@ -768,6 +844,8 @@ fn expired_order_on_pop_front_skips_to_next() {
     let active_order = orderbook
         .place_bid(
             vec![4, 5, 6],
+            vec![0],
+            vec![0],
             vec![0],
             vec![30, 40],
             100,
