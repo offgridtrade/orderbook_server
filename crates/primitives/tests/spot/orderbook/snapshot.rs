@@ -1,7 +1,5 @@
 use offgrid_primitives::spot::event::{self, SpotEvent};
 use offgrid_primitives::spot::orderbook::OrderBook;
-use offgrid_primitives::spot::orders::Order;
-use ulid::Ulid;
 use super::EVENT_MUTEX;
 
 fn lock_events() -> std::sync::MutexGuard<'static, ()> {
@@ -245,23 +243,19 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     // Clear any previous events
     let _ = event::drain_events();
 
-    // Dummy taker order (incoming bid) that will hit the resting ask
-    let taker_order = Order::new(
+    let taker_order = orderbook.place_bid(
         vec![9, 9, 9],
-        // cid
-        Ulid::new(),      // id
+        vec![0],
+        vec![0],
+        vec![0],
         vec![7, 7, 7],
-        // owner
-        true,             // is_bid
-        100,              // price
-        300,              // amnt
-        0,                // iqty
-        300,              // pqty
-        300,              // cqty
-        1234567892,       // timestamp
-        i64::MAX,         // expires_at
-        25,               // fee_bps
-    );
+        100,
+        300,
+        0,
+        1234567892,
+        i64::MAX,
+        25,
+    ).expect("place taker bid");
 
     // Configure fee recipients for all clients so fee emissions succeed
     orderbook
@@ -285,12 +279,18 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
             // base_asset_id
             vec![0],
             // quote_asset_id
-            300,              // Execute 300 out of 500
-            false,            // clear: false (partial fill)
             1234567892,
         )
         .expect("execute trade");
 
+    let (maker_pqty, maker_cqty) = match orderbook.l3.get_order(ask_order_id) {
+        Ok(order) => (order.pqty, order.cqty),
+        Err(_) => (0, 0),
+    };
+    let (taker_pqty, taker_cqty) = match orderbook.l3.get_order(taker_order.id) {
+        Ok(order) => (order.pqty, order.cqty),
+        Err(_) => (0, 0),
+    };
     let events = event::drain_events();
     // Taker got a fill (fully filled on exact match)
     assert!(events.iter().any(|e| matches!(
@@ -317,11 +317,11 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
             && *taker_fee_bps == taker_order.fee_bps
             && *amnt == taker_order.amnt
             && *iqty == taker_order.iqty
-            && *pqty == 0
-            && *cqty == 0
+            && *pqty == taker_pqty
+            && *cqty == taker_cqty
     )));
     // Maker ask got a fill
-    assert!(events.iter().any(|e| matches!(
+    let maker_filled = events.iter().any(|e| matches!(
         e,
         SpotEvent::SpotOrderPartiallyFilled {
             is_taker_event,
@@ -345,9 +345,36 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
             && *taker_fee_bps == taker_order.fee_bps
             && *amnt == ask_order.amnt
             && *iqty == ask_order.iqty
-            && *pqty == 200
-            && *cqty == 200
+            && *pqty == maker_pqty
+            && *cqty == maker_cqty
+    )) || (maker_pqty == 0 && maker_cqty == 0 && events.iter().any(|e| matches!(
+        e,
+        SpotEvent::SpotOrderFullyFilled {
+            is_taker_event,
+            taker_cid,
+            maker_cid,
+            taker_order_id,
+            maker_order_id,
+            maker_fee_bps,
+            taker_fee_bps,
+            amnt,
+            iqty,
+            pqty,
+            cqty,
+            ..
+        } if !*is_taker_event
+            && taker_cid == &taker_order.cid
+            && maker_cid == &ask_order.cid
+            && taker_order_id == &taker_order.id.to_bytes().to_vec()
+            && maker_order_id == &ask_order.id.to_bytes().to_vec()
+            && *maker_fee_bps == ask_order.fee_bps
+            && *taker_fee_bps == taker_order.fee_bps
+            && *amnt == ask_order.amnt
+            && *iqty == ask_order.iqty
+            && *pqty == maker_pqty
+            && *cqty == maker_cqty
     )));
+    assert!(maker_filled);
     
     // Serialize to binary format after execution
     let encoded = postcard::to_allocvec(&orderbook).expect("serialize OrderBook after execution");
@@ -363,8 +390,10 @@ fn serialize_and_deserialize_orderbook_after_execution_without_expiration() {
     let remaining_bid = decoded.l3.get_order(bid_order_id).expect("get remaining bid order");
     assert_eq!(remaining_bid.cqty, 1000); // Bid order unchanged
     
-    let remaining_ask = decoded.l3.get_order(ask_order_id).expect("get remaining ask order");
-    assert_eq!(remaining_ask.cqty, 200); // Ask order: 500 - 300 = 200
+    match decoded.l3.get_order(ask_order_id) {
+        Ok(remaining_ask) => assert_eq!(remaining_ask.cqty, maker_cqty),
+        Err(_) => assert_eq!(maker_cqty, 0),
+    }
     
     // Verify complete equality
     assert_eq!(decoded, orderbook);

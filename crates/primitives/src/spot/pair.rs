@@ -104,7 +104,7 @@ impl Pair {
         });
     }
     
-    /// Match orders at a specific price level
+    /// Match all orders at a specific price level until the taker order is fully filled or no more orders at the price level
     /// Returns remaining_amount after matching
     /// `is_matching_asks` indicates if we're matching against ask orders (true) or bid orders (false)
     /// Continues matching until remaining amount is 0 or no more orders at the price level
@@ -115,10 +115,17 @@ impl Pair {
         is_matching_asks: bool,
         taker_order: &mut Order,
     ) -> Result<Order, OrderBookError> {
+        let taker_id = taker_order.id;
         let mut current_remaining = taker_order.cqty;
 
+        // Get the first order at this price level
+        let mut maker_order_id = match self.orderbook.l3.head(price) {
+            Some(id) => id,
+            None => return Ok(taker_order.clone()), // No more orders
+        };
+
         // Keep matching until remaining is 0 or price level is empty
-        while taker_order.cqty > 0 {
+        while current_remaining > 0 {
             // Check if price level is empty
             if self.orderbook.l3.is_empty(price) {
                 // Remove price level: if matching asks, price level is ask (is_bid = false)
@@ -128,40 +135,53 @@ impl Pair {
                 break;
             }
 
-            // Get the first order at this price level
-            let maker_order_id = match self.orderbook.l3.head(price) {
+            // Get maker order and refresh taker order before executing
+            let maker_order = self.orderbook.l3.get_order(maker_order_id)?.clone();
+            let taker_current = match self.orderbook.l3.get_order(taker_id) {
+                Ok(order) => order.clone(),
+                Err(_) => {
+                    current_remaining = 0;
+                    break;
+                }
+            };
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+
+            self.orderbook.execute(
+                taker_current,
+                maker_order,
+                self.pair_id.clone(),
+                self.base_asset_id.clone(),
+                self.quote_asset_id.clone(),
+                now,
+            )?;
+
+            match self.orderbook.l3.get_order(taker_id) {
+                Ok(updated) => current_remaining = updated.cqty,
+                Err(_) => {
+                    current_remaining = 0;
+                    break;
+                }
+            }
+
+            // traverse to the next order at the price level
+            maker_order_id = match self.orderbook.l3.next(price, maker_order_id) {
                 Some(id) => id,
                 None => break, // No more orders
             };
-
-            // Get maker order to check its amount
-            let match_amount = {
-                let maker_order = self.orderbook.l3.get_order(maker_order_id)?;
-                // Calculate match amount (minimum of remaining and maker order's current quantity)
-                current_remaining.min(maker_order.cqty)
-            };
-
-            // Execute the match by decreasing the maker order only
-            // The taker order will be handled by the caller (limit_buy/limit_sell)
-            let (_, delete_price) = self.orderbook.l3.decrease_order(
-                maker_order_id,
-                match_amount,
-                1u64,
-                false, // clear only if fully matched
-            )?;
-
-            current_remaining -= match_amount;
-
-            // If maker order was fully consumed and price level became empty
-            if delete_price.is_some() && self.orderbook.l3.is_empty(price) {
-                // Remove price level
-                let is_bid = !is_matching_asks;
-                self.orderbook.l2.remove_price(is_bid, price)?;
-                break;
-            }
         }
 
-        Ok(taker_order.clone())
+        let updated = match self.orderbook.l3.get_order(taker_id) {
+            Ok(order) => order.clone(),
+            Err(_) => {
+                // if the taker order is not found, it means the taker order is fully filled
+                return Ok(taker_order.clone());
+            }
+        };
+        Ok(updated)
     }
 
     /// Place a limit order (internal helper)
@@ -192,16 +212,19 @@ impl Pair {
             }
 
             // Match against ask orders while ask_head <= limit_price
-            while taker_order.cqty > 0 && ask_head != 0 && ask_head <= limit_price {
+            let mut current_remaining = taker_order.cqty;
+            while current_remaining > 0 && ask_head != 0 && ask_head <= limit_price {
                 lmp = ask_head; // Update lmp to current match price
                 let match_price = ask_head;
 
                 // Match at this price level until remaining is 0 or price level is empty
-                self._match_at(
+                let updated = self._match_at(
                     match_price,
                     true, // matching against asks
                     taker_order,
                 )?;
+                *taker_order = updated;
+                current_remaining = taker_order.cqty;
 
                 // Update ask_head after matching (price level might be empty now)
                 ask_head = self.orderbook.clear_empty_head_or_zero(false);
@@ -221,16 +244,19 @@ impl Pair {
             }
 
             // Match against bid orders while bid_head >= limit_price
-            while taker_order.cqty > 0 && bid_head != 0 && bid_head >= limit_price {
+            let mut current_remaining = taker_order.cqty;
+            while current_remaining > 0 && bid_head != 0 && bid_head >= limit_price {
                 lmp = bid_head; // Update lmp to current match price
                 let match_price = bid_head;
 
                 // Match at this price level until remaining is 0 or price level is empty
-                self._match_at(
+                let updated = self._match_at(
                     match_price,
                     false, // matching against bids
-                    &mut taker_order.clone(),
+                    taker_order,
                 )?;
+                *taker_order = updated;
+                current_remaining = taker_order.cqty;
 
                 // Update bid_head after matching (price level might be empty now)
                 bid_head = self.orderbook.clear_empty_head_or_zero(true);
@@ -379,28 +405,61 @@ impl Pair {
     pub fn limit_buy(
         &mut self,
         // gateway client id
-        _cid: impl Into<Vec<u8>>,
+        cid: impl Into<Vec<u8>>,
         // order id to update with the transaction if it exists
-        _existing_order_id: Option<OrderId>, // None if new order
+        existing_order_id: Option<OrderId>, // None if new order
         // owner of the order
-        _owner: impl Into<Vec<u8>>,
+        owner: impl Into<Vec<u8>>,
         // price of the order
-        _price: u64,
+        price: u64,
         // total amount of the order
-        _amnt: u64,
+        amnt: u64,
         // iceberg quantity of the order
-        _iqty: u64,
+        iqty: u64,
         // timestamp of the order
-        _timestamp: i64,
+        timestamp: i64,
         // expiring timestamp of the order
-        _expires_at: i64,
+        expires_at: i64,
         // maker fee basis points of the order
-        _maker_fee_bps: u16,
+        maker_fee_bps: u16,
         // taker fee basis points of the order
-        _taker_fee_bps: u16,
+        taker_fee_bps: u16,
         // time in force of the order
-        _time_in_force: TimeInForce,
+        time_in_force: TimeInForce,
     ) -> Result<(), OrderBookError> {
+
+        let cid_vec: Vec<u8> = cid.into();
+        let owner_vec: Vec<u8> = owner.into();
+        if let Some(existing_order_id) = existing_order_id {
+            let order = self.orderbook.l3.get_order(existing_order_id)?;
+            if order.cid != cid_vec {
+                return Err(OrderBookError::OrderNotSupportedByClientId);
+            }
+            if order.owner != owner_vec {
+                return Err(OrderBookError::OrderNotOwnedBySender);
+            }
+        }
+
+        let taker_order = self.orderbook.place_bid(
+            cid_vec.clone(),
+            self.pair_id.clone(),
+            self.base_asset_id.clone(),
+            self.quote_asset_id.clone(),
+            owner_vec.clone(),
+            price,
+            amnt,
+            iqty,
+            timestamp,
+            expires_at,
+            taker_fee_bps,
+        )?;
+
+        let (taker_order, _bid_head, _ask_head) = self._limit_order(
+            price,
+            &mut taker_order.clone(),
+        )?;
+
+        self._handle_time_in_force_post_matching(time_in_force, &mut taker_order.clone(), maker_fee_bps)?;
 
         Ok(())
     }

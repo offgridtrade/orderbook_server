@@ -260,7 +260,7 @@ impl L3 {
     }
 
     /// Decreases the deposit amount for a given order id.
-    ///
+    /// If the order is the order that needs to be cleared by floating point precision, the amount_to_send will be the full amount of the order.
     /// Returns `(amount_to_send, deleted_price_if_level_empty)` where:
     /// - `amount_to_send` is the liquidity that should be returned to the caller. based on the dust limit and the clear flag.
     /// - `deleted_price_if_level_empty` is `Some(price)` when the price level becomes empty.

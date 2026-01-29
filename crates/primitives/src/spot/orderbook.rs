@@ -41,6 +41,8 @@ pub struct OrderBook {
     pub l3: L3,
     // Fee recipients map where key is the client id, and value is the fee recipient account id
     pub fee_recipients: HashMap<Vec<u8>, Vec<u8>>,
+    // dust limit to determine if the order should be deleted
+    pub dust: u64,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -65,6 +67,8 @@ pub enum OrderBookError {
     OrderExpired,
     #[error("unsupported time in force is provided")]
     UnsupportedTimeInForce,
+    #[error("order is not supported by the client id")]
+    OrderNotSupportedByClientId,
 }
 
 impl From<L3Error> for OrderBookError {
@@ -92,6 +96,7 @@ impl OrderBook {
             l2: L2::new(),
             l3: L3::new(),
             fee_recipients: HashMap::new(),
+            dust: 1000,
         }
     }
 
@@ -105,6 +110,11 @@ impl OrderBook {
         self.l1.lmp = Some(price);
     }
 
+    /// Sets the dust limit to determine if the order should be deleted
+    pub fn set_dust(&mut self, dust: u64) {
+        self.dust = dust;
+    }
+
     /// Gets the required amount to match an order as taker to match with the maker order and clear it.
     /// - `taker_order` is the taker order.
     /// - `price` is the price of the maker order.
@@ -116,9 +126,9 @@ impl OrderBook {
         amount: u64,
     ) -> Result<u64, OrderBookError> {
         if taker_order.is_bid {
-            Ok(amount.saturating_mul(price))
+            Ok(amount.saturating_mul(price).saturating_div(1_0000_0000))
         } else {
-            Ok(amount.saturating_div(price))
+            Ok(amount.saturating_mul(1_0000_0000).saturating_div(price))
         }
     }
 
@@ -353,8 +363,6 @@ impl OrderBook {
         pair_id: impl Into<Vec<u8>>,
         base_asset_id: impl Into<Vec<u8>>,
         quote_asset_id: impl Into<Vec<u8>>,
-        matching_amount: u64,
-        clear: bool,
         now: i64,
     ) -> Result<(), OrderBookError> {
         // Normalize IDs up front so we don't move the Into<Vec<u8>> values multiple times
@@ -362,17 +370,21 @@ impl OrderBook {
         let base_asset_id_vec = base_asset_id.into();
         let quote_asset_id_vec = quote_asset_id.into();
         let taker_is_bid = taker_order.is_bid;
+        let (matching_amount, taker_clear, maker_clear) = self._get_matching_amount(taker_order.clone(), maker_order.clone())?;
         // matching_amount is expressed in taker terms; convert to base/quote by side
-        let base_amount = if taker_is_bid {
-            matching_amount.saturating_div(taker_order.price)
+        let matching_base_amount = if taker_is_bid {
+            matching_amount.saturating_mul(1_0000_0000).saturating_div(taker_order.price)
         } else {
             matching_amount
         };
-        let quote_amount = if taker_is_bid {
+        let matching_quote_amount = if taker_is_bid {
             matching_amount
         } else {
-            matching_amount.saturating_mul(taker_order.price)
+            matching_amount.saturating_mul(taker_order.price).saturating_div(1_0000_0000)
         };
+
+        let taker_matching_amount = if taker_is_bid { matching_quote_amount.clone() } else { matching_base_amount.clone() };
+        let maker_matching_amount = if taker_is_bid { matching_base_amount.clone() } else { matching_quote_amount.clone() };
 
         // Get order data before mutable borrow
         if maker_order.expires_at <= now {
@@ -380,16 +392,18 @@ impl OrderBook {
             // let _match_at at pair.rs handle the expired order error
             return Err(OrderBookError::OrderExpired);
         }
-
-        let (amount_to_send, delete_price) =
+        let (_taker_delete_amount, taker_delete_price) =
             self.l3
-                .decrease_order(maker_order.id, matching_amount, 1u64, clear)?;
+                .decrease_order(taker_order.id, taker_matching_amount, self.dust, taker_clear)?;
+        let (_maker_delete_amount, maker_delete_price) =
+            self.l3
+                .decrease_order(maker_order.id, maker_matching_amount, self.dust, maker_clear)?;
 
         // Calculate fees using fee table
         let (base_fee, quote_fee) = self._calculate_fees(
             taker_is_bid,
-            base_amount,
-            quote_amount,
+            matching_base_amount,
+            matching_quote_amount,
             maker_order.fee_bps,
             taker_order.fee_bps,
         );
@@ -397,29 +411,33 @@ impl OrderBook {
         // emit the event for order matched
         let match_timestamp = now;
 
-        let taker_remaining_cqty = taker_order.cqty.saturating_sub(amount_to_send);
-        let taker_remaining_pqty = taker_order.pqty.min(taker_remaining_cqty);
-
-        // emit event for both maker and taker
-        let (remaining_cqty, remaining_pqty) = match self.l3.get_order(maker_order.id) {
+        let (taker_remaining_cqty, taker_remaining_pqty) = match self.l3.get_order(taker_order.id) {
             Ok(updated) => (updated.cqty, updated.pqty),
             Err(_) => (0, 0),
         };
-        let delta_cqty = maker_order.cqty.saturating_sub(remaining_cqty);
-        let delta_pqty = maker_order.pqty.saturating_sub(remaining_pqty);
+
+        // emit event for both maker and taker
+        let (maker_remaining_cqty, maker_remaining_pqty) = match self.l3.get_order(maker_order.id) {
+            Ok(updated) => (updated.cqty, updated.pqty),
+            Err(_) => (0, 0),
+        };
+        let taker_delta_cqty = taker_order.cqty.saturating_sub(taker_remaining_cqty);
+        let taker_delta_pqty = taker_order.pqty.saturating_sub(taker_remaining_pqty);
+        let maker_delta_cqty = maker_order.cqty.saturating_sub(maker_remaining_cqty);
+        let maker_delta_pqty = maker_order.pqty.saturating_sub(maker_remaining_pqty);
         // emit taker / maker order history event
         self._emit_taker_maker_match(
             taker_order.clone(),
             maker_order.clone(),
             taker_remaining_cqty,
             taker_remaining_pqty,
-            remaining_cqty,
-            remaining_pqty,
+            maker_remaining_cqty,
+            maker_remaining_pqty,
             pair_id_vec.clone(),
             base_asset_id_vec.clone(),
             quote_asset_id_vec.clone(),
-            base_amount,
-            quote_amount,
+            matching_base_amount,
+            matching_quote_amount,
             base_fee,
             quote_fee,
             match_timestamp,
@@ -431,36 +449,79 @@ impl OrderBook {
         // Update levels and remove price if level becomes 0 or below
         // Also handle delete_price removal if an order was fully consumed
         self.update_price_level(
+            pair_id_vec.clone(),
+            false,
+            taker_order.is_bid,
+            taker_order.price,
+            taker_delta_pqty,
+            taker_delta_cqty,
+            taker_delete_price,
+        )?;
+        self.update_price_level(
             pair_id_vec,
             false,
-            taker_is_bid,
+            maker_order.is_bid,
             maker_order.price,
-            delta_pqty,
-            delta_cqty,
-            delete_price,
+            maker_delta_pqty,
+            maker_delta_cqty,
+            maker_delete_price,
         )?;
 
         Ok(())
     }
 
+    /// Determines the matching amount between the taker and maker orders.
+    /// - `taker_order` is the taker order.
+    /// - `maker_order` is the maker order.
+    /// - returns the matching amount and whether the taker order is fully matched and whether the maker order is fully matched.
+    fn _get_matching_amount(
+        &mut self,
+        taker_order: Order,
+        maker_order: Order,
+    ) -> Result<(u64, bool, bool), OrderBookError> {
+        let taker_converted_matching_cqty = if taker_order.is_bid {
+            taker_order.cqty.saturating_mul(1_0000_0000).saturating_div(taker_order.price)
+        } else {
+            taker_order.cqty.saturating_mul(taker_order.price).saturating_div(1_0000_0000)
+        };
+        // there are two cases:
+        // 1. taker order's converted matching amount is bigger than maker order's matching amount
+        if taker_converted_matching_cqty >= maker_order.cqty {
+            // get the taker's matching amount from the maker order
+            let taker_matching_amount = self.get_required(maker_order.clone(), taker_order.price, maker_order.cqty)?;
+            return Ok((taker_matching_amount, false, true));
+        } 
+        // 2. taker order's converted matching amount is smaller than maker order's matching amount
+        else if taker_converted_matching_cqty < maker_order.cqty {
+            // get the maker's matching amount from the taker order
+            let maker_matching_cqty = self.get_required(taker_order.clone(), maker_order.price, taker_order.cqty)?;
+            return Ok((maker_matching_cqty, true, false));
+        }
+        // 3. taker order's converted matching amount is equal to maker order's matching amount
+        else { 
+            // get the taker's matching amount from the maker order
+            return Ok((taker_order.cqty, true, true)); 
+        }
+    }
+
     fn _calculate_fees(
         &self,
         is_bid: bool,
-        base_amount: u64,
-        quote_amount: u64,
+        matching_base_amount: u64,
+        matching_quote_amount: u64,
         maker_fee_bps: u16,
         taker_fee_bps: u16,
     ) -> (u64, u64) {
         // find maker and taker from base and quote amount
         if is_bid {
             (
-                base_amount * maker_fee_bps as u64 / 10000,
-                quote_amount * taker_fee_bps as u64 / 10000,
+                matching_base_amount * maker_fee_bps as u64 / 10000,
+                matching_quote_amount * taker_fee_bps as u64 / 10000,
             )
         } else {
             (
-                base_amount * taker_fee_bps as u64 / 10000,
-                quote_amount * maker_fee_bps as u64 / 10000,
+                matching_base_amount * taker_fee_bps as u64 / 10000,
+                matching_quote_amount * maker_fee_bps as u64 / 10000,
             )
         }
     }
