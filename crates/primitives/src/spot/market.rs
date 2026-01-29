@@ -260,7 +260,7 @@ impl L1 {
         bid_head: u64,
         ask_head: u64,
         spread: u32,
-    ) -> u64 {
+    ) -> (u64, u64) {
         const DENOM: u64 = 10000; // Basis points denominator (10000 = 100%)
         let lmp = self.lmp().unwrap_or(0);
 
@@ -270,37 +270,39 @@ impl L1 {
             if lmp != 0 {
                 // Use lmp with spread (add spread for buy)
                 let up = ((lmp as u128 * (DENOM + spread as u64) as u128) / DENOM as u128) as u64;
-                return up;
+                return (up, lmp);
             }
             // No lmp, return 0 (should not happen in practice)
-            return 0;
+            return (0, lmp);
         } else if ask_head == 0 && bid_head != 0 {
             // Only bids exist
             if lmp != 0 {
                 let temp = if bid_head >= lmp { bid_head } else { lmp };
                 let up = ((temp as u128 * (DENOM + spread as u64) as u128) / DENOM as u128) as u64;
-                return up;
+                return (up, lmp);
             }
             // No lmp, use bid_head with spread
             let up = ((bid_head as u128 * (DENOM + spread as u64) as u128) / DENOM as u128) as u64;
-            return up;
+            return (up, lmp);
         } else if ask_head != 0 && bid_head == 0 {
             // Only asks exist
             if lmp != 0 {
                 let up = ((lmp as u128 * (DENOM + spread as u64) as u128) / DENOM as u128) as u64;
-                return if ask_head >= up { up } else { ask_head };
+                let price = if ask_head >= up { up } else { ask_head };
+                return (price, lmp);
             }
             // No lmp, return ask_head
-            return ask_head;
+            return (ask_head, lmp);
         } else {
             // Both bids and asks exist
             if lmp != 0 {
                 let temp = if bid_head >= lmp { bid_head } else { lmp };
                 let up = ((temp as u128 * (DENOM + spread as u64) as u128) / DENOM as u128) as u64;
-                return if ask_head >= up { up } else { ask_head };
+                let price = if ask_head >= up { up } else { ask_head };
+                return (price, lmp);
             }
             // No lmp, return ask_head
-            return ask_head;
+            return (ask_head, lmp);
         }
     }
 
@@ -318,7 +320,7 @@ impl L1 {
         bid_head: u64,
         ask_head: u64,
         spread: u32,
-    ) -> u64 {
+    ) -> (u64, u64) {
         const DENOM: u64 = 10000; // Basis points denominator (10000 = 100%)
         let lmp = self.lmp().unwrap_or(0);
 
@@ -329,32 +331,36 @@ impl L1 {
                 // Use lmp with spread (subtract spread for sell)
                 let down = ((lmp as u128 * (DENOM - spread as u64) as u128) / DENOM as u128) as u64;
                 // Ensure price is never 0
-                return if down == 0 { 1 } else { down };
+                let price = if down == 0 { 1 } else { down };
+                return (price, lmp);
             }
             // No lmp, return 0 (should not happen in practice)
-            return 0;
+            return (0, lmp);
         } else if ask_head == 0 && bid_head != 0 {
             // Only bids exist
             if lmp != 0 {
                 let mut down = ((lmp as u128 * (DENOM - spread as u64) as u128) / DENOM as u128) as u64;
                 down = if down <= bid_head { bid_head } else { down };
                 // Ensure price is never 0
-                return if down == 0 { 1 } else { down };
+                let price = if down == 0 { 1 } else { down };
+                return (price, lmp);
             }
             // No lmp, return bid_head
-            return bid_head;
+            return (bid_head, lmp);
         } else if ask_head != 0 && bid_head == 0 {
             // Only asks exist
             if lmp != 0 {
                 let temp = if lmp <= ask_head { lmp } else { ask_head };
                 let down = ((temp as u128 * (DENOM - spread as u64) as u128) / DENOM as u128) as u64;
                 // Ensure price is never 0
-                return if down == 0 { 1 } else { down };
+                let price = if down == 0 { 1 } else { down };
+                return (price, lmp);
             }
             // No lmp, use ask_head with spread
             let down = ((ask_head as u128 * (DENOM - spread as u64) as u128) / DENOM as u128) as u64;
             // Ensure price is never 0
-            return if down == 0 { 1 } else { down };
+            let price = if down == 0 { 1 } else { down };
+            return (price, lmp);
         } else {
             // Both bids and asks exist
             if lmp != 0 {
@@ -362,10 +368,11 @@ impl L1 {
                 let mut down = ((temp as u128 * (DENOM - spread as u64) as u128) / DENOM as u128) as u64;
                 down = if down <= bid_head { bid_head } else { down };
                 // Ensure price is never 0
-                return if down == 0 { 1 } else { down };
+                let price = if down == 0 { 1 } else { down };
+                return (price, lmp);
             }
             // No lmp, return bid_head
-            return bid_head;
+            return (bid_head, lmp);
         }
     }
 

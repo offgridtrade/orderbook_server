@@ -8,10 +8,9 @@ use crate::spot::{
 };
 
 use super::{
-    market::L1Error,
     orders::{L3Error, OrderId},
     prices::L2Error,
-    L1, L2, L3,
+    L2, L3,
 };
 
 /// In-memory order book for spot markets.
@@ -27,14 +26,10 @@ use super::{
 /// let mut ob = OrderBook::new();
 /// assert_eq!(ob.lmp(), None);
 ///
-/// // Set and read back the last matched price (LMP)
-/// ob.set_lmp(100);
 /// assert_eq!(ob.lmp(), Some(100));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct OrderBook {
-    // L1 state
-    pub l1: L1,
     // L2 state
     pub l2: L2,
     // L3 state
@@ -59,8 +54,6 @@ pub enum OrderBookError {
     L3(L3Error),
     #[error("L2 error: {0}")]
     L2(L2Error),
-    #[error("L1 error: {0}")]
-    L1(L1Error),
     #[error("iceberg quantity is bigger than whole amount")]
     IcebergQuantityIsBiggerThanWholeAmount,
     #[error("order has expired")]
@@ -69,6 +62,12 @@ pub enum OrderBookError {
     UnsupportedTimeInForce,
     #[error("order is not supported by the client id")]
     OrderNotSupportedByClientId,
+    #[error("fill or kill order not fully filled")]
+    OrderNotFullyFilled,
+    #[error("no ask orders in the orderbook")]
+    NoAskOrdersInOrderbook,
+    #[error("no bid orders in the orderbook")]
+    NoBidOrdersInOrderbook,
 }
 
 impl From<L3Error> for OrderBookError {
@@ -83,31 +82,14 @@ impl From<L2Error> for OrderBookError {
     }
 }
 
-impl From<L1Error> for OrderBookError {
-    fn from(err: L1Error) -> Self {
-        OrderBookError::L1(err)
-    }
-}
-
 impl OrderBook {
     pub fn new() -> Self {
         Self {
-            l1: L1::new(),
             l2: L2::new(),
             l3: L3::new(),
             fee_recipients: HashMap::new(),
             dust: 1000,
         }
-    }
-
-    /// Gets the last matched price (lmp)
-    pub fn lmp(&self) -> Option<u64> {
-        self.l1.lmp
-    }
-
-    /// Sets the last matched price (lmp)
-    pub fn set_lmp(&mut self, price: u64) {
-        self.l1.lmp = Some(price);
     }
 
     /// Sets the dust limit to determine if the order should be deleted
